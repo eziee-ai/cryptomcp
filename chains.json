@@ -1,0 +1,4 @@
+{
+  "5042002": { "name": "Arc Testnet", "rpc": "https://rpc.testnet.arc.network", "explorer": "https://testnet.arcscan.app" },
+  "11155931": { "name": "RISE Testnet", "rpc": "https://testnet.riselabs.xyz", "explorer": "https://testnet-explorer.riselabs.xyz" }
+}
