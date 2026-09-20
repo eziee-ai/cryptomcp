@@ -16,7 +16,10 @@ submitted, checked, reviewed and kept, in the open.
 
 1. Build your server from [protocol-mcp-template](https://github.com/eziee-ai/protocol-mcp-template) and get
    `pnpm conform --strict` to exit 0 against it.
-2. Open a pull request here that adds one folder and touches nothing else:
+2. Show that your domain stands behind your repository: add a DNS TXT record at `_cryptomcp.<your homepage's domain>`
+   with the value `cryptomcp-repo=<owner>/<repository>`, and serve your MCP server from that domain or a subdomain of
+   it. This is what stops anyone else from listing a protocol under your name.
+3. Open a pull request here that adds one folder and touches nothing else:
 
    ```
    registry/<id>/manifest.json   the manifest, byte for byte the one in your own repository
@@ -35,10 +38,10 @@ submitted, checked, reviewed and kept, in the open.
    }
    ```
 
-3. The validator comments on the pull request within a minute or two. Fix every FAIL.
-4. A maintainer reviews what no program can: each function signature against verified source, each spending action
+4. The validator comments on the pull request within a minute or two. Fix every FAIL.
+5. A maintainer reviews what no program can: each function signature against verified source, each spending action
    simulated on a fork, who can upgrade each proxy. See the pull request template.
-5. After the merge you give a maintainer your server's key privately. From then on a scheduled check runs eziee's
+6. After the merge you give a maintainer your server's key privately. From then on a scheduled check runs eziee's
    conformance against your live server every day.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) has the details, including how to add a chain.
@@ -58,17 +61,24 @@ the app takes manifests from this repository at a commit it pins, release by rel
 
 `.github/workflows/validate.yml` runs on `pull_request_target`, from `main`. It never checks out the pull request. It
 reads the changed files through the GitHub API as bytes and only parses them, so a pull request cannot change how it
-is judged and has nothing to run. It holds no secret. The only hosts it contacts are `api.github.com` and the RPC
-endpoints in [`chains.json`](chains.json); no URL from a submission is ever fetched.
+is judged and has nothing to run. It holds no secret. The only hosts it connects to are `api.github.com` and the RPC
+endpoints in [`chains.json`](chains.json). It asks the runner's DNS resolver for one TXT record on your homepage's
+domain. No URL from a submission is ever fetched, and no connection is ever opened to a host a submission names.
 
 It checks that the pull request touches one `registry/<id>/` and nothing else; that the author may change that
 entry, judged by the maintainers already on `main`; eziee's own strict manifest parser; that every action has a
-sample; that every contract has code and the proxy type it declares, and every token answers `symbol()` and
+sample; that the name is not reserved for a well-known protocol ([`reserved.json`](reserved.json)); that the server
+is on the homepage's domain and that domain's DNS names your repository; that every contract has code and the proxy type it declares, and every token answers `symbol()` and
 `decimals()` as declared; that the icon is inert; and that your repository holds this exact manifest at the commit
 you named.
 
+A green check means those things and no more. It cannot tell a contract you reviewed from another that merely has
+code, so an approval is for one commit: a push after it dismisses it, and the last push must itself be approved.
+
 The checking code in [`kit/`](kit/) is eziee's own, copied unchanged from the template at the commit in
-[`kit.lock`](kit.lock). CI fails if it differs by a byte.
+[`kit.lock`](kit.lock), which must be a commit on the template's `main`. `pnpm sync-kit --check` fails if it differs
+by a byte. That check runs in ordinary CI, from the pull request's own code, so a pull request could switch it off:
+what protects `kit/` is that it has code owners, and that such a pull request is never a submission.
 
 ## Security
 

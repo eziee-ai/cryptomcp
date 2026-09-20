@@ -2,6 +2,10 @@
 # that matters: it never runs for a pull request, only from `main`, only on a schedule or a maintainer's dispatch,
 # and everything it reads (the manifests, the samples, the URL each key is sent to) was reviewed and merged.
 #
+# The `if: github.ref == 'refs/heads/main'` on each job is a convenience, NOT the boundary: dispatched from another
+# ref, the workflow file that runs is that ref's. The boundary is the `live-check` environment's deployment-branch
+# policy, which releases its secrets to `main` alone.
+#
 # Each protocol's key lives in the `live-check` environment, which is restricted to `main`. Each matrix job is given
 # exactly one key: its own.
 name: live-check
@@ -81,7 +85,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # No credentials are left in .git/config: the install and the assembly below run without a token that can
+      # write. Only the push step is given one.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -116,7 +124,9 @@ jobs:
           cp "$RUNNER_TEMP/status.json" status.json
           git add -f status.json
           git commit -q -m "status: $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push -q origin status
+          git push -q "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" status
+        env:
+          PUSH_TOKEN: ${{ github.token }}
       - name: Ask Vercel to rebuild the site
         run: |
           set -euo pipefail

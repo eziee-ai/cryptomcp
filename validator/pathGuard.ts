@@ -17,7 +17,8 @@ export type Guard = { kind: "submission"; id: string } | { kind: "maintainer-cha
 export const ENTRY_FILES = ["manifest.json", "samples.json", "icon.svg", "entry.json"] as const;
 export const MAX_FILES = ENTRY_FILES.length;
 
-const MAINTAINER_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+// Not MEMBER: membership of the organisation is not write access to this repository, and says nothing about owning its code.
+const MAINTAINER_ASSOCIATIONS = new Set(["OWNER", "COLLABORATOR"]);
 // GitHub reserves the `[bot]` suffix for apps, so no person can hold this login.
 const DEPENDABOT = "dependabot[bot]";
 

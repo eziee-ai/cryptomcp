@@ -66,8 +66,10 @@ Name, homepage, chains, contracts, tokens and actions come from the manifest and
 
 The validator and the live check use eziee's own code: `parseManifest`, `checkChain`, `checkServer`, `acceptBuild`.
 The one public copy of that code is `kit/` in protocol-mcp-template. This repository copies it with
-`pnpm sync-kit <commit>`, which writes the files and records the commit in `kit.lock`. CI fails if `kit/` differs by
-one byte from the template at the locked commit, so it cannot be edited in place. Moving to a newer kit is a reviewed
+`pnpm sync-kit <commit>`, which writes the files and records the commit in `kit.lock`. The commit must be on the
+template's `main` (GitHub serves a fork's commits from the upstream URL too). `pnpm sync-kit --check` fails if `kit/`
+differs by one byte from the template at the locked commit. It runs in ordinary CI from the pull request's own code,
+so it is a tripwire for honest mistakes; what protects `kit/` from a hostile change is its code owners. Moving to a newer kit is a reviewed
 pull request that changes `kit.lock` and `kit/` together.
 
 ## 5. The pull request validator
@@ -80,6 +82,8 @@ A pull request from a fork is hostile input. Three properties must hold:
    `pull-requests: write`.
 2. **The result cannot be forged.** The workflow runs on `pull_request_target`, so the workflow file and the
    validator are the ones on `main`. A pull request that edits either changes nothing about how it is judged.
+   Everything read from `main` (an entry's maintainers, the files a pull request leaves alone) is read at `main`'s
+   commit at the moment of the run, never at the event's `base.sha`, which goes stale as soon as anything merges.
 3. **No code from the pull request runs.** The job checks out `main` and nothing else. It reads the pull request's
    changed files through the GitHub API as bytes, into memory. It never checks out the head, never installs from it,
    never imports, renders or executes anything in it. Everything it does to those bytes is parsing: `JSON.parse`,
@@ -115,8 +119,16 @@ In order. The first failure in the path guard stops the run; later groups all ru
 **Onchain, through `chains.json` only**
 - `checkChain` from the kit: every contract has code, its proxy type is as declared, a transparent proxy's admin is
   the one the chain names, every token answers `symbol()` and `decimals()` as declared.
-- The only hosts contacted are the RPC URLs in `chains.json` on `main` and `api.github.com`. No URL taken from the
+- The only hosts connected to are the RPC URLs in `chains.json` on `main` and `api.github.com`. No URL taken from the
   pull request is ever fetched, so the pull request cannot make the runner call anything.
+
+**Identity** (added after the security review, 2026-09-20: without it, `id: uniswap` with someone else's homepage
+passed every check)
+- A first submission may not use a name in `reserved.json`, as its id or at the start of its display name.
+- `mcp.url` is on the homepage's host or a subdomain of it, and the homepage is on a DNS name, not an IP address.
+- A DNS TXT record at `_cryptomcp.<homepage host>` holds `cryptomcp-repo=<owner>/<repository>` for `entry.repo`.
+  This is one lookup through the runner's resolver; nothing is fetched from the domain. The live check (§7) asks
+  again daily.
 
 **Source link, through `api.github.com` only**
 - `entry.repo` exists and is public; `registry/<id>/manifest.json` at `entry.commit` equals the submitted manifest.
@@ -213,8 +225,14 @@ Cloudflare zone as DNS-only so Vercel issues and renews the certificate.
 
 ## 9. Hardening the repository
 
-- Ruleset on `main`: pull request required, one approval from a code owner, `registry / validate` and `ci` required,
-  linear history, no force push, no deletion, no bypass. The `status` branch: only GitHub Actions may push.
+- Ruleset on `main`: pull request required; one approval from a code owner; **stale approvals dismissed on a new
+  push, and the most recent push must itself be approved by someone other than its author**; required checks
+  `validate` (workflow `registry`) and `check` (workflow `ci`), with the branch up to date before merging; linear
+  history; no force push; no deletion; an empty bypass list. The `status` branch: no force push, no deletion.
+  The approval rules matter more than they look. The validator proves an address has code, not that it is the
+  contract a reviewer read, so an approval must never outlive the commit it was given for.
+- Requiring approval for fork pull request workflows does not gate `pull_request_target`; `validate.yml` runs at
+  once for anyone. That is safe only because of §5.1, and is why §5.1 is pinned by tests.
 - `CODEOWNERS`: `*` and, explicitly, `/.github/`, `/validator/`, `/kit/`, `/chains.json`, `/site/`, `/live-check/`
   to the eziee maintainers. `registry/` needs a maintainer's approval too; the difference is that the validator
   judges it.

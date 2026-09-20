@@ -186,7 +186,7 @@ Identity: tokens copied by value from the eziee app's `DESIGN.md` (ink `#10120F`
 - [ ] `gh repo create eziee-ai/cryptomcp --public`, push `main`.
 - [ ] Repository settings through `gh api`: delete branch on merge, squash only, secret scanning and push protection on, private vulnerability reporting on, Actions default token read-only, Actions may not approve pull requests, fork pull request workflows from outside collaborators require approval.
 - [ ] Environment `live-check` with a deployment branch policy of `main` only.
-- [ ] Ruleset on `main`: pull request with one code-owner approval, required checks `validate` and `check` (the names GitHub reports; read them from the first runs before requiring them), linear history, no force push, no deletion. Ruleset on `status`: no deletion, no force push.
+- [ ] Ruleset on `main`, with an EMPTY bypass list: pull request with one code-owner approval, `dismiss_stale_reviews_on_push: true`, `require_last_push_approval: true`, required checks `validate` and `check` with `strict_required_status_checks_policy: true` (read the check names from the first runs before requiring them), linear history, no force push, no deletion. Ruleset on `status`: no deletion, no force push. (Security review C1: the validator cannot tell a reviewed contract from another that has code, so an approval must not survive a push.)
 - [ ] Read every setting back and compare.
 
 ### Task 9: Vercel and DNS

@@ -3,102 +3,161 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
 
+/**
+ * The workflows are this repository's attack surface, so they are pinned by EXACT lists, not by looking for known
+ * bad strings: which files exist, what triggers each, which actions each uses, and every `${{ }}` expression each
+ * contains. A blocklist passes whatever it did not think of. Here, anything new fails until a maintainer adds it to
+ * a list in this file, in a change a code owner has to read.
+ */
 const DIR = fileURLToPath(new URL("../.github/workflows/", import.meta.url));
-const FILES = readdirSync(DIR).filter((name) => name.endsWith(".yml"));
 const text = (name: string) => readFileSync(`${DIR}${name}`, "utf8");
-const load = (name: string) => parse(text(name)) as { on: Record<string, unknown>; permissions?: unknown; jobs: Record<string, { environment?: unknown; permissions?: Record<string, string>; steps?: Array<{ uses?: string; run?: string; with?: Record<string, unknown>; env?: Record<string, string> }> }> };
 /** A workflow without its comments, which are allowed to NAME the things the workflow must not do. */
 const code = (name: string) => text(name).split("\n").filter((line) => !line.trim().startsWith("#")).join("\n");
 
-describe("every workflow", () => {
-  it.each(FILES)("%s pins each action to a full commit SHA", (name) => {
-    const uses = Object.values(load(name).jobs).flatMap((job) => job.steps ?? []).map((step) => step.uses).filter((value): value is string => value !== undefined);
-    expect(uses.length).toBeGreaterThan(0);
-    for (const value of uses) expect(value).toMatch(/^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/);
+interface Step {
+  uses?: string;
+  run?: string;
+  with?: Record<string, unknown>;
+  env?: Record<string, string>;
+}
+interface Job {
+  if?: string;
+  environment?: unknown;
+  permissions?: Record<string, string>;
+  steps?: Step[];
+}
+const load = (name: string) => parse(text(name)) as { on: Record<string, unknown>; permissions?: unknown; jobs: Record<string, Job> };
+const steps = (name: string) => Object.values(load(name).jobs).flatMap((job) => job.steps ?? []);
+const expressions = (name: string) => [...new Set([...code(name).matchAll(/\$\{\{\s*(.*?)\s*\}\}/g)].map((match) => match[1]!))].sort();
+
+const CHECKOUT = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262";
+const PNPM = "pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1";
+const NODE = "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020";
+const UPLOAD = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02";
+const DOWNLOAD = "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093";
+
+const PINNED: Record<string, { triggers: string[]; uses: string[]; expressions: string[]; permissions: Record<string, Record<string, string>> }> = {
+  "validate.yml": {
+    triggers: ["pull_request_target"],
+    uses: [CHECKOUT, PNPM, NODE],
+    // The pull request's NUMBER, in a concurrency group. Nothing else from the event: not its title, body, branch or SHA.
+    expressions: ["github.event.pull_request.number", "github.token"],
+    permissions: { validate: { contents: "read", "pull-requests": "write" } },
+  },
+  "ci.yml": {
+    triggers: ["pull_request", "push"],
+    uses: [CHECKOUT, PNPM, NODE],
+    expressions: ["github.ref"],
+    permissions: { check: { contents: "read" } },
+  },
+  "live-check.yml": {
+    triggers: ["schedule", "workflow_dispatch"],
+    uses: [CHECKOUT, PNPM, NODE, CHECKOUT, PNPM, NODE, UPLOAD, CHECKOUT, PNPM, NODE, DOWNLOAD],
+    expressions: ["fromJSON(needs.list.outputs.matrix)", "github.token", "matrix.protocol.id", "secrets.VERCEL_DEPLOY_HOOK", "secrets[format('MCP_KEY_{0}', matrix.protocol.key)]", "steps.list.outputs.empty", "steps.list.outputs.matrix"],
+    permissions: { list: { contents: "read" }, check: { contents: "read" }, publish: { contents: "write" } },
+  },
+};
+
+describe("the set of workflows", () => {
+  it("is exactly the ones pinned here: a new workflow file is a new attack surface", () => {
+    expect(readdirSync(DIR).sort()).toEqual(Object.keys(PINNED).sort());
   });
 
-  it.each(FILES)("%s installs without running dependency scripts, from the lockfile", (name) => {
-    for (const line of code(name).split("\n").filter((entry) => /pnpm install/.test(entry))) expect(line).toMatch(/--frozen-lockfile/), expect(line).toMatch(/--ignore-scripts/);
+  it("has no composite action or reusable workflow of its own to hide steps in", () => {
+    const github = readdirSync(fileURLToPath(new URL("../.github/", import.meta.url))).sort();
+    expect(github).toEqual(["CODEOWNERS", "PULL_REQUEST_TEMPLATE.md", "dependabot.yml", "workflows"]);
+  });
+});
+
+describe.each(Object.entries(PINNED))("%s", (name, pinned) => {
+  const workflow = load(name);
+
+  it("is triggered by exactly these events", () => {
+    expect(Object.keys(workflow.on).sort()).toEqual(pinned.triggers);
   });
 
-  it("only validate.yml runs on pull_request_target", () => {
-    expect(FILES.filter((name) => Object.hasOwn(load(name).on, "pull_request_target"))).toEqual(["validate.yml"]);
+  it("uses exactly these actions, each pinned to a full commit SHA, and none that is local or a Docker image", () => {
+    const used = steps(name).map((step) => step.uses).filter((value): value is string => value !== undefined);
+    expect(used).toEqual(pinned.uses);
+    for (const value of used) expect(value).toMatch(/^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/);
+    expect(JSON.stringify(workflow)).not.toMatch(/"uses":"(\.|docker:)/);
+    for (const job of Object.values(workflow.jobs)) expect(job).not.toHaveProperty("uses");
+  });
+
+  it("contains exactly these expressions, anywhere in it: run, with, env, if or name", () => {
+    expect(expressions(name)).toEqual(pinned.expressions);
+  });
+
+  it("puts no expression inside a shell line", () => {
+    for (const step of steps(name)) if (step.run) expect(step.run).not.toContain("${{");
+  });
+
+  it("grants nothing by default, and each job exactly what is pinned", () => {
+    expect([{}, { contents: "read" }]).toContainEqual(workflow.permissions);
+    expect(Object.fromEntries(Object.entries(workflow.jobs).map(([job, value]) => [job, value.permissions]))).toEqual(pinned.permissions);
+    expect(code(name)).not.toMatch(/write-all|read-all/);
+  });
+
+  it("installs from the lockfile without running dependency scripts", () => {
+    for (const line of code(name).split("\n").filter((entry) => /pnpm install/.test(entry))) expect(line).toMatch(/--frozen-lockfile.*--ignore-scripts/);
   });
 });
 
 describe("validate.yml, which runs with this repository's token on pull requests from anyone", () => {
   const workflow = load("validate.yml");
-  const source = code("validate.yml");
-
-  it("is triggered by pull_request_target and nothing else", () => {
-    expect(Object.keys(workflow.on)).toEqual(["pull_request_target"]);
-  });
 
   it("never checks out the pull request", () => {
-    const steps = Object.values(workflow.jobs).flatMap((job) => job.steps ?? []);
-    for (const step of steps.filter((entry) => entry.uses?.startsWith("actions/checkout@"))) {
-      expect(step.with?.ref).toBeUndefined();
-      expect(step.with?.repository).toBeUndefined();
-      expect(step.with?.["persist-credentials"]).toBe(false);
-    }
-    for (const forbidden of ["pull_request.head", "github.head_ref", "refs/pull", "gh pr checkout", "git fetch", "git checkout"]) expect(source).not.toContain(forbidden);
+    const checkouts = steps("validate.yml").filter((step) => step.uses?.startsWith("actions/checkout@"));
+    expect(checkouts).toHaveLength(1);
+    // Exactly this, and nothing else: no ref, no repository, no token, no path.
+    expect(checkouts[0]!.with).toEqual({ "persist-credentials": false });
   });
 
-  it("references no secret, and has a token that can read code and write a comment, no more", () => {
-    expect(source).not.toMatch(/secrets\./);
-    expect(workflow.permissions).toEqual({});
-    expect(Object.values(workflow.jobs).map((job) => job.permissions)).toEqual([{ contents: "read", "pull-requests": "write" }]);
-    expect(Object.values(workflow.jobs).every((job) => job.environment === undefined)).toBe(true);
+  it("gives no step anything from the pull request: the only env is the token, and the only with is pinned", () => {
+    const all = steps("validate.yml");
+    expect(all.map((step) => step.env)).toEqual([undefined, undefined, undefined, undefined, { GITHUB_TOKEN: "${{ github.token }}" }]);
+    expect(all.map((step) => step.with)).toEqual([{ "persist-credentials": false }, undefined, { "node-version-file": ".nvmrc" }, undefined, undefined]);
   });
 
-  it("runs only this repository's own validator, and interpolates nothing from the event into a shell", () => {
-    const runs = Object.values(workflow.jobs).flatMap((job) => job.steps ?? []).map((step) => step.run).filter((value): value is string => value !== undefined);
-    expect(runs).toEqual(["pnpm install --frozen-lockfile --ignore-scripts --filter .", "pnpm validate"]);
-    for (const line of runs) expect(line).not.toContain("${{");
+  it("runs only this repository's own validator", () => {
+    expect(steps("validate.yml").map((step) => step.run).filter((value) => value !== undefined)).toEqual(["pnpm install --frozen-lockfile --ignore-scripts --filter .", "pnpm validate"]);
   });
 
-  it("reports the check the ruleset requires", () => {
+  it("references no secret and no environment, and has one job, the check the ruleset requires", () => {
+    expect(code("validate.yml")).not.toMatch(/secrets/);
     expect(Object.keys(workflow.jobs)).toEqual(["validate"]);
+    expect(workflow.jobs.validate!.environment).toBeUndefined();
+    expect(workflow.permissions).toEqual({});
   });
 });
 
 describe("ci.yml, which runs the pull request's own code", () => {
-  it("runs on pull_request with a read-only token and no secrets", () => {
-    const workflow = load("ci.yml");
-    expect(Object.keys(workflow.on).sort()).toEqual(["pull_request", "push"]);
-    expect(workflow.permissions).toEqual({ contents: "read" });
-    expect(code("ci.yml")).not.toMatch(/secrets\./);
+  it("has a read-only token, no secrets, and leaves no credentials behind", () => {
+    expect(load("ci.yml").permissions).toEqual({ contents: "read" });
+    expect(code("ci.yml")).not.toMatch(/secrets/);
+    for (const step of steps("ci.yml").filter((entry) => entry.uses?.startsWith("actions/checkout@"))) expect(step.with).toEqual({ "persist-credentials": false });
   });
 });
 
 describe("live-check.yml, which holds every protocol's key", () => {
   const workflow = load("live-check.yml");
 
-  it("never runs for a pull request or a push", () => {
-    expect(Object.keys(workflow.on).sort()).toEqual(["schedule", "workflow_dispatch"]);
-  });
-
-  it("runs every job from main only", () => {
-    for (const job of Object.values(workflow.jobs) as Array<{ if?: string }>) expect(job.if).toContain("github.ref == 'refs/heads/main'");
-  });
-
-  it("reads a secret only in a job bound to the live-check environment, and never inside a shell line", () => {
+  it("reads a secret only in a job bound to the live-check environment", () => {
     for (const [name, job] of Object.entries(workflow.jobs)) {
-      const steps = job.steps ?? [];
-      const readsSecret = steps.some((step) => Object.values(step.env ?? {}).some((value) => String(value).includes("secrets")));
+      const readsSecret = (job.steps ?? []).some((step) => JSON.stringify(step).includes("secrets"));
+      expect(job.environment, name).toBe(readsSecret ? "live-check" : job.environment);
       if (readsSecret) expect(job.environment, name).toBe("live-check");
-      for (const step of steps) if (step.run) expect(step.run, name).not.toContain("${{");
     }
-    expect(workflow.permissions).toEqual({});
   });
 
-  it("gives each matrix job one key, chosen by the protocol's id on main", () => {
-    const env = Object.values(workflow.jobs.check!.steps ?? []).flatMap((step) => Object.entries(step.env ?? {}));
-    expect(env).toContainEqual(["MCP_KEY", "${{ secrets[format('MCP_KEY_{0}', matrix.protocol.key)] }}"]);
-    expect(JSON.stringify(workflow.jobs.check)).not.toContain("toJSON(secrets)");
+  it("gives each matrix job one key, its own, and never the whole set", () => {
+    expect(steps("live-check.yml").flatMap((step) => Object.entries(step.env ?? {}))).toContainEqual(["MCP_KEY", "${{ secrets[format('MCP_KEY_{0}', matrix.protocol.key)] }}"]);
+    expect(code("live-check.yml")).not.toMatch(/toJSON\(\s*secrets|secrets\s*\)/);
   });
 
-  it("lets only the publish job write, and only contents", () => {
-    expect(Object.fromEntries(Object.entries(workflow.jobs).map(([name, job]) => [name, job.permissions]))).toEqual({ list: { contents: "read" }, check: { contents: "read" }, publish: { contents: "write" } });
+  it("leaves no credentials in any checkout, and hands the write token to the push step alone", () => {
+    for (const step of steps("live-check.yml").filter((entry) => entry.uses?.startsWith("actions/checkout@"))) expect(step.with).toEqual({ "persist-credentials": false });
+    const withToken = steps("live-check.yml").filter((step) => Object.values(step.env ?? {}).includes("${{ github.token }}"));
+    expect(withToken.map((step) => Object.keys(step.env!))).toEqual([["PROTOCOL_ID", "MCP_KEY", "GITHUB_TOKEN"], ["PUSH_TOKEN"]]);
   });
 });

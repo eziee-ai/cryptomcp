@@ -18,7 +18,7 @@ function code(value: string, max: number): string {
   return inert === "" ? "" : `\`${inert}\``;
 }
 
-export function renderReport(findings: Finding[], meta: { id?: string; sha: string }): string {
+export function renderReport(findings: Finding[], meta: { id?: string; sha: string; kind?: "submission" | "maintainer-change" }): string {
   const count = (status: Finding["status"]) => findings.filter((finding) => finding.status === status && !finding.manual).length;
   const automatic = findings.filter((finding) => !finding.manual);
   const manual = findings.filter((finding) => finding.manual);
@@ -26,6 +26,9 @@ export function renderReport(findings: Finding[], meta: { id?: string; sha: stri
 
   const lines = [MARKER, meta.id ? `### Registry validation: ${code(meta.id, 40)}` : "### Registry validation", ""];
   if (!meta.id) lines.push("This pull request is not judged as a registry submission.", "");
+  // Nothing was checked, so nothing is said to have passed. A green tick on a change to the validator itself must
+  // not read as the validator having approved of it.
+  if (meta.kind === "maintainer-change") return [...lines, "It touches no registry entry, so there was nothing for the validator to check. **This is not a review.** Code owners review it.", "", `<sub>Seen at ${code(meta.sha.slice(0, 12), 12)}.</sub>`].join("\n");
   lines.push(failed ? "**Not ready.** Every FAIL below has to be fixed before a reviewer looks at this." : "**The automatic checks pass.** That is necessary, not sufficient: a reviewer still checks by hand what is listed at the end.", "");
 
   lines.push("| | Check | Detail |", "|---|---|---|");

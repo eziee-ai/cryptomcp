@@ -41,8 +41,16 @@ function fetchKit(commit: string): string {
   const dir = mkdtempSync(join(tmpdir(), "kit-sync-"));
   const git = (...args: string[]) => execFileSync("git", args, { cwd: dir, stdio: ["ignore", "ignore", "inherit"] });
   git("init", "-q");
-  git("fetch", "-q", "--depth", "1", TEMPLATE, commit);
-  git("checkout", "-q", "FETCH_HEAD", "--", "kit");
+  // GitHub serves a FORK's commits from the upstream URL too, so that a commit can be fetched from the template
+  // proves nothing about who wrote it. It must be one the template's own main branch contains.
+  git("fetch", "-q", TEMPLATE, "refs/heads/main:refs/remotes/template/main");
+  git("fetch", "-q", TEMPLATE, commit);
+  try {
+    git("merge-base", "--is-ancestor", commit, "refs/remotes/template/main");
+  } catch {
+    throw new Error(`${commit} is not on the main branch of protocol-mcp-template`);
+  }
+  git("checkout", "-q", commit, "--", "kit");
   return join(dir, "kit");
 }
 

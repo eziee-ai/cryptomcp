@@ -6,15 +6,18 @@ import { fakeClient, fixtureFiles, FIXTURE_CHAINS, json, parsed } from "./helper
 
 const HEAD = "b".repeat(40);
 const BASE = "a".repeat(40);
-const event = (login = "alice", association = "NONE", changedFiles?: number): PullRequestEvent => ({ repository: { full_name: "eziee-ai/cryptomcp" }, pull_request: { number: 7, changed_files: changedFiles ?? -1, author_association: association, user: { login }, head: { sha: HEAD }, base: { sha: BASE } } });
+const event = (login = "alice", association = "NONE"): PullRequestEvent => ({ repository: { full_name: "eziee-ai/cryptomcp" }, pull_request: { number: 7, author_association: association, user: { login }, head: { sha: HEAD }, base: { ref: "main" } } });
 
 /** A GitHub that holds a pull request's files at HEAD, main's at BASE, and the protocol's own repository. */
-function fakeGitHub(options: { changed: ChangedFile[]; head?: Record<string, RemoteFile>; base?: Record<string, RemoteFile> }) {
+function fakeGitHub(options: { changed: ChangedFile[]; head?: Record<string, RemoteFile>; base?: Record<string, RemoteFile>; counted?: number; headNow?: string }) {
   const posted: string[] = [];
   const reads: Array<[string, string, string]> = [];
   const manifest = fixtureFiles().get("manifest.json")!;
   const github: GitHub = {
     listPrFiles: async () => options.changed,
+    getPr: async () => ({ headSha: options.headNow ?? HEAD, changedFiles: options.counted ?? options.changed.length }),
+    // BASE stands for main as it is now. Nothing in a run may read main at any other commit.
+    getBranchHead: async (_repo, branch) => (branch === "main" ? BASE : Promise.reject(new Error("no such branch"))),
     getFile: async (repo, path, ref) => {
       reads.push([repo, path, ref]);
       if (repo === "eziee-ai/protocol-mcp-template") return { type: "file", size: manifest.byteLength, bytes: manifest };
@@ -29,12 +32,8 @@ function fakeGitHub(options: { changed: ChangedFile[]; head?: Record<string, Rem
 
 const asRemote = (files: Map<string, Uint8Array>): Record<string, RemoteFile> => Object.fromEntries([...files].map(([name, bytes]) => [`registry/yourprotocol/${name}`, { type: "file", size: bytes.byteLength, bytes }]));
 const added = (files: Record<string, RemoteFile>): ChangedFile[] => Object.keys(files).map((filename) => ({ filename, status: "added" }));
-const deps = (github: GitHub) => ({ github, chains: FIXTURE_CHAINS, clientFor: () => fakeClient() });
-/** Runs with the event's file count set to what the fake GitHub lists, as the real event's would be. */
-async function judge(github: GitHub, login?: string, association?: string) {
-  const count = (await github.listPrFiles("eziee-ai/cryptomcp", 7)).length;
-  return run(event(login, association, count), deps(github));
-}
+const deps = (github: GitHub) => ({ github, chains: FIXTURE_CHAINS, clientFor: () => fakeClient(), reserved: [], resolveTxt: async () => ["cryptomcp-repo=eziee-ai/protocol-mcp-template"] });
+const judge = (github: GitHub, login?: string, association?: string) => run(event(login, association), deps(github));
 
 describe("run", () => {
   it("passes a good first submission and posts one report", async () => {
@@ -98,8 +97,8 @@ describe("run", () => {
 
   it("fails when GitHub counts more changed files than it listed, without reading any", async () => {
     const head = asRemote(fixtureFiles());
-    const { github, reads } = fakeGitHub({ changed: added(head), head });
-    const result = await run(event("alice", "NONE", 5), deps(github));
+    const { github, reads } = fakeGitHub({ changed: added(head), head, counted: 5 });
+    const result = await judge(github, "alice");
     expect(result.ok).toBe(false);
     expect(result.findings.map((finding) => finding.check)).toEqual(["every changed file was listed"]);
     expect(reads).toEqual([]);
@@ -112,5 +111,21 @@ describe("run", () => {
     const result = await judge(github, "alice");
     expect(result.ok).toBe(false);
     expect(result.findings.map((finding) => finding.check)).toContain("manifest.json can be read from the pull request");
+  });
+
+  it("stops when the pull request was pushed to after the run began, reading nothing of it", async () => {
+    const head = asRemote(fixtureFiles());
+    const { github, reads } = fakeGitHub({ changed: added(head), head, headNow: "c".repeat(40) });
+    const result = await judge(github, "alice");
+    expect(result.ok).toBe(false);
+    expect(result.findings.map((finding) => finding.check)).toEqual(["the pull request held still while it was judged"]);
+    expect(reads).toEqual([]);
+  });
+
+  it("says of a maintainer's change that nothing was checked, never that checks pass", async () => {
+    const { github, posted } = fakeGitHub({ changed: [{ filename: ".github/workflows/validate.yml", status: "modified" }] });
+    await judge(github, "hskang9", "OWNER");
+    expect(posted[0]).toContain("This is not a review");
+    expect(posted[0]).not.toContain("checks pass");
   });
 });

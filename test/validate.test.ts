@@ -7,9 +7,11 @@ const TEMPLATE = "eziee-ai/protocol-mcp-template";
 function setup(change: { files?: (files: Map<string, Uint8Array>) => void; input?: Partial<ValidateInput>; deps?: Partial<ValidateDeps>; github?: Partial<ValidateDeps["github"]> } = {}) {
   const files = fixtureFiles();
   change.files?.(files);
-  const input: ValidateInput = { id: "yourprotocol", author: "alice", files, existingMaintainers: null, chains: FIXTURE_CHAINS, ...change.input };
+  const input: ValidateInput = { id: "yourprotocol", author: "alice", files, existingMaintainers: null, chains: FIXTURE_CHAINS, reserved: ["uniswap", "sky"], ...change.input };
   const deps: ValidateDeps = {
     clientFor: () => fakeClient(),
+    // The owner of yourprotocol.example has said, in DNS, that this repository speaks for it.
+    resolveTxt: async (name) => (name === "_cryptomcp.yourprotocol.example" ? ["v=spf1 -all", "cryptomcp-repo=eziee-ai/protocol-mcp-template"] : Promise.reject(new Error("ENOTFOUND"))),
     github: {
       getRepo: async () => ({ private: false, templateRepository: TEMPLATE }),
       // The protocol's own repository carries the very manifest that was submitted.
@@ -139,6 +141,47 @@ describe("validateSubmission", () => {
 
     it("reports a GitHub outage as a failure, not as a pass", async () => {
       expect(await failures(setup({ github: { getRepo: async () => Promise.reject(new Error("502")) } }))).toContain("the protocol's repository is public");
+    });
+  });
+
+  describe("who this really is", () => {
+    const asUniswap = edit("manifest.json", (manifest) => Object.assign(manifest, { name: "Uniswap V4", homepage: "https://uniswap.org", mcp: { url: "https://mcp.uniswap.org/mcp", transport: "streamable-http" } }));
+
+    it("fails a well-known name taken by a first submission, by id or by the start of the display name", async () => {
+      expect(await failures(setup({ files: asUniswap }))).toContain("the name is not a reserved one");
+      expect(await failures(setup({ input: { reserved: ["yourprotocol"] } }))).toContain("the name is not a reserved one");
+    });
+
+    it("does not let a short reserved word block a longer name, and leaves an existing entry its name", async () => {
+      expect(await failures(setup({ files: edit("manifest.json", (manifest) => (manifest.name = "Skyline")) }))).toEqual([]);
+      expect(await failures(setup({ input: { reserved: ["yourprotocol"], existingMaintainers: ["alice"] } }))).toEqual([]);
+    });
+
+    it("fails a server that is not on the homepage's domain", async () => {
+      expect(await failures(setup({ files: edit("manifest.json", (manifest) => (manifest.mcp.url = "https://mcp.evil.example/mcp")) }))).toContain("the server is on the homepage's domain");
+      // A suffix that merely ends the same way is not a subdomain.
+      expect(await failures(setup({ files: edit("manifest.json", (manifest) => (manifest.mcp.url = "https://evilyourprotocol.example/mcp")) }))).toContain("the server is on the homepage's domain");
+      expect(await failures(setup({ files: edit("manifest.json", (manifest) => Object.assign(manifest, { homepage: "https://203.0.113.7", mcp: { url: "https://203.0.113.7/mcp", transport: "streamable-http" } })) }))).toContain("the server is on the homepage's domain");
+    });
+
+    it("fails without a DNS record in which the homepage's domain names this repository", async () => {
+      const proof = "the homepage's domain names this repository";
+      expect(await failures(setup({ deps: { resolveTxt: async () => [] } }))).toContain(proof);
+      expect(await failures(setup({ deps: { resolveTxt: async () => ["cryptomcp-repo=mallory/uniswap-mcp"] } }))).toContain(proof);
+      expect(await failures(setup({ deps: { resolveTxt: async () => Promise.reject(new Error("SERVFAIL")) } }))).toContain(proof);
+      expect(await failures(setup({ deps: { resolveTxt: async () => ["CryptoMCP-Repo=Eziee-AI/Protocol-MCP-Template "] } }))).toEqual([]);
+    });
+
+    it("asks DNS about the homepage's own domain and nothing else", async () => {
+      const asked: string[] = [];
+      await setup({ deps: { resolveTxt: async (name) => (asked.push(name), []) }, files: edit("manifest.json", (manifest) => Object.assign(manifest, { homepage: "https://www.yourprotocol.example/about?x=1" })) });
+      expect(asked).toEqual(["_cryptomcp.yourprotocol.example"]);
+    });
+
+    it("cannot be impersonated by naming someone else's homepage: the proof is in THEIR DNS", async () => {
+      // mallory submits as Uniswap from her own repository. uniswap.org's DNS says nothing about her.
+      const run = setup({ input: { reserved: [], author: "mallory" }, files: (files) => (asUniswap(files), edit("entry.json", (entry) => Object.assign(entry, { repo: "https://github.com/mallory/uniswap-mcp", maintainers: ["mallory"] }))(files)) });
+      expect(await failures(run)).toContain("the homepage's domain names this repository");
     });
   });
 });

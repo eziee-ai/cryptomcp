@@ -4,6 +4,7 @@
  * The key comes from the environment variable MCP_KEY, which the workflow fills from the one secret that belongs to
  * this protocol. It is never an argument, so it never appears in a process list or a log.
  */
+import { Resolver } from "node:dns/promises";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
     // https only, no redirects, 64 KB: the kit's caller refuses anything else, so the key cannot be sent in the clear or carried off.
     callerFor: (url, key) => createHttpMcpCaller({ url, apiKey: key }),
     getRepo: (repo) => github.getRepo(repo),
+    resolveTxt: async (name) => (await new Resolver({ timeout: 5000, tries: 2 }).resolveTxt(name)).map((chunks) => chunks.join("")),
     now: () => new Date().toISOString(),
   });
 

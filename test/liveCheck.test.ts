@@ -26,6 +26,7 @@ async function against(options: { dishonest?: boolean; key?: string; deps?: Part
     // The test server is plain http on localhost. In production the kit's caller refuses anything but https.
     callerFor: (url, key) => (asked.push({ url, key }), createHttpMcpCaller({ url: server.url, apiKey: key, allowInsecure: true })),
     getRepo: async () => ({ private: false, templateRepository: "eziee-ai/protocol-mcp-template" }),
+    resolveTxt: async () => ["cryptomcp-repo=eziee-ai/protocol-mcp-template"],
     now: () => NOW,
     ...options.deps,
   };
@@ -68,6 +69,12 @@ describe("checkProtocol", () => {
     const { result } = await against({ key: KEY, deps: { clientFor: () => fakeClient({ code: { "0x0000000000000000000000000000000000000101": "0x" } }) } });
     expect(result.state).toBe("failing");
     expect(result.failures.map((failure) => failure.check)).toContain("chain 900001: contract router has code");
+  });
+
+  it("finds a protocol whose domain no longer names its repository failing", async () => {
+    const { result } = await against({ key: KEY, deps: { resolveTxt: async () => [] } });
+    expect(result.state).toBe("failing");
+    expect(result.failures.map((failure) => failure.check)).toEqual(["the homepage's domain names this repository"]);
   });
 
   it("records what it could not learn about the repository as unknown, without failing the protocol for it", async () => {

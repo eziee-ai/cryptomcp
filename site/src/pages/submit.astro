@@ -16,6 +16,12 @@ import Base from "../layouts/Base.astro";
       request validator runs, against your live server, before anyone else sees it.
     </li>
     <li>
+      Show that your domain stands behind your repository. Add a DNS TXT record at
+      <code class="mono">_cryptomcp.&lt;your homepage's domain&gt;</code> with the value
+      <code class="mono">cryptomcp-repo=&lt;owner&gt;/&lt;repository&gt;</code>, and serve your MCP server from that domain or a subdomain of it. This is what stops anyone
+      else from listing a protocol under your name. It is checked on the pull request and again every day.
+    </li>
+    <li>
       Open a pull request to <a href="https://github.com/eziee-ai/cryptomcp" rel="noopener noreferrer nofollow">eziee-ai/cryptomcp</a> adding one folder,
       <code class="mono">registry/&lt;id&gt;/</code>, with exactly four files:
       <ul class="check-list">
@@ -44,7 +50,8 @@ import Base from "../layouts/Base.astro";
     A GitHub Action reports on the pull request itself, and must be green before a human reviews it. In order: every changed file is under your one
     <code class="mono">registry/&lt;id&gt;/</code> folder and is one of the four allowed names; the manifest, <code class="mono">entry.json</code> and
     <code class="mono">samples.json</code> parse against their strict schemas and every action has a matching sample; every chain the manifest names is one the registry
-    already supports; the icon parses as safe, inert SVG; every contract has code onchain, every declared proxy type and admin is correct, and every token answers
+    already supports; the name is not one reserved for a well-known protocol; the server is on the homepage's domain, and that domain's DNS names your repository;
+    the icon parses as safe, inert SVG (shapes, paths and gradients only); every contract has code onchain, every declared proxy type and admin is correct, and every token answers
     <code class="mono">symbol()</code> and <code class="mono">decimals()</code> as declared; and <code class="mono">entry.repo</code> is public with the manifest at
     <code class="mono">entry.commit</code> matching the submission exactly.
   </p>

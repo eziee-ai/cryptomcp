@@ -3,6 +3,7 @@ import { checkChain, checkServer, summarize, type Finding } from "../kit/conform
 import type { McpCaller } from "../kit/mcp/caller";
 import { clean } from "../kit/text";
 import type { Chains } from "../lib/chains";
+import { domainProofFinding, serverHostFinding, type ResolveTxt } from "../lib/identity";
 import type { RegistryEntry } from "../lib/registry";
 import type { CheckResult } from "../lib/status";
 import { TEMPLATE_REPO, type RepoInfo } from "../validator/validate";
@@ -20,6 +21,7 @@ export interface CheckDeps {
   clientFor(chainId: number): PublicClient;
   callerFor(url: string, key: string): McpCaller;
   getRepo(repo: string): Promise<RepoInfo | null>;
+  resolveTxt: ResolveTxt;
   now(): string;
 }
 
@@ -42,6 +44,8 @@ export async function checkProtocol(entry: RegistryEntry, key: string | undefine
   if (!key) return { state: "unchecked", checkedAt, fromTemplate, summary: { pass: 0, fail: 0, notRun: 0 }, failures: [] };
 
   const findings: Finding[] = [];
+  // Asked again every day: a domain that stops naming this repository has stopped vouching for it.
+  findings.push(serverHostFinding(entry.manifest), await domainProofFinding(entry.manifest, entry.entry, deps.resolveTxt));
   const url = entry.manifest.mcp?.url;
   if (!url) findings.push({ check: "the manifest names its server", status: "fail", detail: "no mcp.url" });
   else {

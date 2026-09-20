@@ -55,13 +55,14 @@ describe("guardPaths", () => {
     const workflow = added(".github/workflows/validate.yml", "validator/main.ts");
 
     it("is refused from an outside contributor", () => {
-      for (const association of ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "FIRST_TIMER", "MANNEQUIN", ""]) {
+      // MEMBER too: belonging to the organisation is not write access to this repository.
+      for (const association of ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "FIRST_TIMER", "MANNEQUIN", "MEMBER", ""]) {
         expect(guardPaths(workflow, { login: "mallory", association }).kind).toBe("refused");
       }
     });
 
     it("is left to code owners when it comes from a maintainer or from Dependabot", () => {
-      for (const association of ["OWNER", "MEMBER", "COLLABORATOR"]) expect(guardPaths(workflow, { login: "x", association })).toEqual({ kind: "maintainer-change" });
+      for (const association of ["OWNER", "COLLABORATOR"]) expect(guardPaths(workflow, { login: "x", association })).toEqual({ kind: "maintainer-change" });
       expect(guardPaths(added("package.json", "pnpm-lock.yaml"), { login: "dependabot[bot]", association: "NONE" })).toEqual({ kind: "maintainer-change" });
     });
 

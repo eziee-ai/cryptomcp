@@ -3,14 +3,16 @@ import { checkChain, type Finding } from "../kit/conform/checks";
 import { parseManifest, type Manifest } from "../kit/manifest";
 import type { Chains } from "../lib/chains";
 import { parseEntry, parseSamples, type Entry, type Samples } from "../lib/entry";
+import { domainProofFinding, reservedNameFinding, serverHostFinding, type ResolveTxt } from "../lib/identity";
 import { iconProblems, MAX_ICON_BYTES } from "../lib/svg";
 import { ENTRY_FILES } from "./pathGuard";
 
 /**
  * Everything the validator can know about a submission without trusting it (spec §5.2).
  *
- * `files` are bytes. Nothing here executes, imports, renders or fetches anything a submission names: the only
- * network calls go through `deps`, to the RPC endpoints of chains.json and to api.github.com.
+ * `files` are bytes. Nothing here executes, imports, renders or fetches anything a submission names. The only
+ * connections made go through `deps`, to the RPC endpoints of chains.json and to api.github.com; and one DNS TXT
+ * lookup for the homepage's domain goes through the runner's own resolver.
  *
  * Every check is reported, pass or fail, so a reader sees what was looked at. What could not be looked at is
  * reported as not run. Nothing is left out in silence.
@@ -27,6 +29,8 @@ export interface ValidateInput {
   /** `maintainers` of this entry on MAIN, or null when the entry is new. The pull request's own list never decides who may change it. */
   existingMaintainers: string[] | null;
   chains: Chains;
+  /** Names no first-come submission may take. From `reserved.json` on main. */
+  reserved: string[];
 }
 
 export interface RepoInfo {
@@ -37,6 +41,8 @@ export interface RepoInfo {
 
 export interface ValidateDeps {
   clientFor(chainId: number): PublicClient;
+  /** DNS TXT records for a name, through the runner's own resolver. The only thing ever asked about a submission's domain. */
+  resolveTxt: ResolveTxt;
   github: {
     getRepo(repo: string): Promise<RepoInfo | null>;
     getFile(repo: string, path: string, ref: string): Promise<{ type: string; size: number; bytes: Uint8Array } | null>;
@@ -103,6 +109,9 @@ export async function validateSubmission(input: ValidateInput, deps: ValidateDep
     const server = manifest.mcp ? new URL(manifest.mcp.url) : undefined;
     const serverOk = server !== undefined && server.protocol === "https:" && server.username === "" && server.password === "";
     findings.push(serverOk ? pass("the manifest names its server") : fail("the manifest names its server", "mcp.url must be present and an https: URL without credentials; the live check calls it"));
+    if (serverOk) findings.push(serverHostFinding(manifest));
+    // A new entry may not take a well-known name. An existing one keeps the name it was reviewed under.
+    if (input.existingMaintainers === null) findings.push(reservedNameFinding(manifest, input.reserved));
   }
 
   if (manifest && samples) {
@@ -126,6 +135,7 @@ export async function validateSubmission(input: ValidateInput, deps: ValidateDep
   }
 
   if (manifest) findings.push(...(await chainFindings(manifest, input.chains, deps)));
+  if (manifest && entry) findings.push(await domainProofFinding(manifest, entry, deps.resolveTxt));
   if (manifest && entry) findings.push(...(await sourceFindings(input, entry, deps)));
 
   return [...findings, ...MANUAL];

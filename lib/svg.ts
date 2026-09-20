@@ -13,7 +13,9 @@ import { XMLParser, XMLValidator } from "fast-xml-parser";
 export const MAX_ICON_BYTES = 8 * 1024;
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const ELEMENTS = new Set(["svg", "g", "path", "circle", "ellipse", "rect", "line", "polyline", "polygon", "defs", "linearGradient", "radialGradient", "stop", "clipPath", "mask", "title", "desc", "use"]);
+// No <use>: a chain of them that each reference the last twice expands to 2^n shapes from a kilobyte of text, and
+// an 8 KB icon has no need to reuse anything.
+const ELEMENTS = new Set(["svg", "g", "path", "circle", "ellipse", "rect", "line", "polyline", "polygon", "defs", "linearGradient", "radialGradient", "stop", "clipPath", "mask", "title", "desc"]);
 const LOCAL_REF = /^#[A-Za-z_][A-Za-z0-9_.-]*$/;
 const LOCAL_URL = /url\(\s*(['"]?)#[A-Za-z_][A-Za-z0-9_.-]*\1\s*\)/gi;
 
@@ -75,7 +77,10 @@ function walk(nodes: Node[], problems: string[]): void {
       const local = lower.includes(":") ? lower.slice(lower.indexOf(":") + 1) : lower;
       if (lower.startsWith("on")) problems.push(`the ${attribute.slice(0, 40)} attribute is an event handler`);
       if (local === "href" && !LOCAL_REF.test(value.trim())) problems.push(`${attribute} may only point inside the same document (#id)`);
-      if (local === "base" || local === "src") problems.push(`the ${attribute.slice(0, 40)} attribute is not allowed`);
+      if (local === "base" || local === "src" || local === "style") problems.push(`the ${attribute.slice(0, 40)} attribute is not allowed`);
+      // A CSS escape spells a keyword this check looks for without containing it: `\75rl(` is `url(`. Presentation
+      // attributes are parsed as CSS too, so no attribute value may carry a backslash at all.
+      if (value.includes("\\")) problems.push(`the ${attribute.slice(0, 40)} attribute contains a backslash`);
       // Whitespace and controls are skipped by browsers inside a scheme name, so they are skipped here too.
       const squeezed = Array.from(value).filter((ch) => ch.codePointAt(0)! > 0x20).join("").toLowerCase();
       if (squeezed.includes("javascript:") || squeezed.includes("expression(") || squeezed.includes("@import")) problems.push(`the ${attribute.slice(0, 40)} attribute carries script or an import`);
