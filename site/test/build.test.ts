@@ -2,7 +2,9 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+// node-html-parser is only for reading text out of a page in the content assertions. The SAFETY assertions use parse5.
 import { parse } from "node-html-parser";
+import { parse as parse5 } from "parse5";
 import { describe, expect, it, beforeAll } from "vitest";
 import { safeHref } from "../src/lib/safeHref";
 
@@ -39,39 +41,52 @@ function allHtmlFiles(dir: string): string[] {
 }
 
 /** Every check spec section 8 and the task brief ask of an HTML page rendering untrusted submission content. */
+/** Every element the site's pages are made of. Anything else in the output is something nobody decided to put there. */
+const ELEMENTS = new Set(["#document", "#documentType", "#text", "#comment", "html", "head", "meta", "title", "link", "body", "a", "header", "footer", "main", "nav", "section", "article", "h1", "h2", "h3", "h4", "p", "span", "div", "ul", "ol", "li", "dl", "dt", "dd", "img", "picture", "source", "table", "caption", "thead", "tbody", "tr", "th", "td", "code", "pre", "strong", "em", "small", "time", "br"]);
+const URL_ATTRIBUTES = new Set(["href", "src", "srcset", "action", "formaction", "poster", "data", "ping", "cite", "manifest", "background", "xlink:href"]);
+const STYLESHEETS = /^(\/_astro\/[\w.-]+\.css|https:\/\/api\.fontshare\.com\/v2\/css\?[^"<>\s]*)$/;
+
+interface Node {
+  nodeName: string;
+  attrs?: Array<{ name: string; value: string }>;
+  childNodes?: Node[];
+  content?: Node;
+}
+
 function assertPageIsSafe(html: string, label: string) {
-  // A hostile string like `onerror=alert(1)` or `javascript:` legitimately appears in the raw source as escaped
-  // TEXT (its `<`/`>` turned into entities, or simply as inert text with no markup around it), which is exactly
-  // the safe outcome — so every check below runs on the parsed DOM, not as a blanket regex over the raw source,
-  // which would flag safely-escaped or safely-inert text as if it were live markup.
-  const root = parse(html);
+  // A hostile string like `onerror=alert(1)` legitimately appears in the raw source as escaped TEXT, which is the
+  // safe outcome, so every check runs on the parsed tree, not as a regex over the source. The parser is parse5, the
+  // HTML specification's own algorithm: what it builds is what a browser builds. (A lenient parser drops elements it
+  // does not know, and an assertion cannot fail on an element it was never shown.)
+  const seen: Node[] = [];
+  const walk = (node: Node) => {
+    seen.push(node);
+    for (const child of node.childNodes ?? []) walk(child);
+    if (node.content) walk(node.content);
+  };
+  walk(parse5(html) as unknown as Node);
 
-  for (const el of root.querySelectorAll("*")) {
-    for (const attrName of Object.keys(el.attributes)) {
-      expect(attrName.toLowerCase().startsWith("on"), `${label}: element <${el.tagName}> has attribute "${attrName}"`).toBe(false);
+  for (const node of seen) {
+    expect(ELEMENTS.has(node.nodeName), `${label}: <${node.nodeName}> is not an element this site is made of`).toBe(true);
+    for (const { name, value } of node.attrs ?? []) {
+      const where = `${label}: <${node.nodeName} ${name}="${value}">`;
+      expect(name.startsWith("on"), `${where} is an event handler`).toBe(false);
+      expect(["style", "srcdoc", "http-equiv", "formaction", "action", "background", "ping"].includes(name), `${where} is not an attribute this site uses`).toBe(false);
+      if (!URL_ATTRIBUTES.has(name)) continue;
+      // A same-site path, a fragment, or https. Nothing protocol-relative, nothing with another scheme.
+      for (const candidate of name === "srcset" ? value.split(",").map((part) => part.trim().split(/\s+/)[0]!) : [value]) {
+        expect(/^(\/(?!\/)|#|https:\/\/)/.test(candidate), `${where} is not a same-site path, a fragment or an https: URL`).toBe(true);
+      }
     }
-    expect(el.attributes.style, `${label}: element <${el.tagName}> has a style attribute`).toBeUndefined();
-  }
-
-  expect(root.querySelector("script"), `${label}: a <script> element exists`).toBeNull();
-  expect(root.querySelector("style"), `${label}: a <style> element exists`).toBeNull();
-  expect(root.querySelector("iframe"), `${label}: an <iframe> element exists`).toBeNull();
-  expect(root.querySelector("object"), `${label}: an <object> element exists`).toBeNull();
-  expect(root.querySelector("embed"), `${label}: an <embed> element exists`).toBeNull();
-
-  for (const el of root.querySelectorAll("[href], [src]")) {
-    for (const attr of ["href", "src"] as const) {
-      const value = el.attributes[attr];
-      if (value === undefined) continue;
-      expect(/^\s*(javascript|data):/i.test(value), `${label}: <${el.tagName} ${attr}="${value}">`).toBe(false);
+    if (node.nodeName === "link") {
+      const attrs = Object.fromEntries((node.attrs ?? []).map((attr) => [attr.name, attr.value]));
+      if (attrs.rel === "stylesheet") expect(attrs.href, `${label}: a stylesheet from somewhere unexpected`).toMatch(STYLESHEETS);
     }
-  }
-
-  for (const a of root.querySelectorAll("a")) {
-    const href = a.attributes.href;
-    if (href && /^https?:\/\//i.test(href)) {
-      const rel = a.attributes.rel ?? "";
-      expect(rel.split(/\s+/), `${label}: external link ${href} is missing rel="noopener"`).toContain("noopener");
+    if (node.nodeName === "a") {
+      const attrs = Object.fromEntries((node.attrs ?? []).map((attr) => [attr.name, attr.value]));
+      if (attrs.href?.startsWith("https://")) expect((attrs.rel ?? "").split(/\s+/), `${label}: external link ${attrs.href} is missing rel="noopener"`).toContain("noopener");
+      // A link never reads as one site while pointing at another.
+      if (attrs.href?.startsWith("https://")) expect(new URL(attrs.href).username, `${label}: ${attrs.href} carries credentials`).toBe("");
     }
   }
 }
@@ -94,6 +109,14 @@ describe("safeHref", () => {
   });
   it("accepts a plain https: URL", () => {
     expect(safeHref("https://ok.example")).toBe("https://ok.example");
+  });
+  it("rejects a URL that reads as one site and is on another", () => {
+    expect(safeHref("https://uniswap.org@evil.example/claim")).toBeNull();
+    expect(safeHref("https://user:pw@ok.example")).toBeNull();
+  });
+  it("rejects an internationalised domain and an IP address", () => {
+    expect(safeHref("https://xn--niswap-235b.org")).toBeNull();
+    expect(safeHref("https://203.0.113.7/x")).toBeNull();
   });
 });
 
@@ -139,6 +162,13 @@ describe("fixture A: two protocols, one hostile", () => {
     const text = root.querySelector("body")!.textContent;
     expect(text).toContain("<script>alert(1)</script>");
     expect(text).toContain('"><img src=x onerror=alert(1)>');
+  });
+
+  it("links an address to its chain's explorer when the chain is one the registry supports", () => {
+    const html = readFileSync(path.join(build.outDir, "p", "another-protocol", "index.html"), "utf8");
+    expect(html).toMatch(/href="https:\/\/testnet\.arcscan\.app\/address\/0x[0-9a-fA-F]{40}"/);
+    // and shows one it does not know as plain text, with no link
+    expect(readFileSync(path.join(build.outDir, "p", "yourprotocol", "index.html"), "utf8")).not.toMatch(/\/address\/0x/);
   });
 
   it("writes registry.json with every id and the right state", () => {
@@ -213,3 +243,19 @@ describe("fixture C: status.json is not valid JSON", () => {
     expect(build.status).not.toBe(0);
   });
 });
+
+describe("fixture D: protocols are listed and the status cannot be found", () => {
+  it("fails the build, so a Failing server is never republished as merely Listed", () => {
+    const build = runBuild({ registryDir: path.join(FIXTURES, "registry-a"), statusUrl: `file://${path.join(FIXTURES, "no-such-status.json")}` });
+    expect(build.status).not.toBe(0);
+    expect(build.stdout + build.stderr).toContain("Refusing to build");
+  });
+});
+
+describe("fixture E: overrides that point outside the repository", () => {
+  it("fails the build", () => {
+    expect(runBuild({ registryDir: "/etc", statusUrl: `file://${path.join(FIXTURES, "status-a.json")}` }).status).not.toBe(0);
+    expect(runBuild({ registryDir: path.join(FIXTURES, "registry-empty"), statusUrl: "file:///etc/hosts" }).status).not.toBe(0);
+  });
+});
+

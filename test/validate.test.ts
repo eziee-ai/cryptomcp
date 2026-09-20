@@ -161,7 +161,8 @@ describe("validateSubmission", () => {
       expect(await failures(setup({ files: edit("manifest.json", (manifest) => (manifest.mcp.url = "https://mcp.evil.example/mcp")) }))).toContain("the server is on the homepage's domain");
       // A suffix that merely ends the same way is not a subdomain.
       expect(await failures(setup({ files: edit("manifest.json", (manifest) => (manifest.mcp.url = "https://evilyourprotocol.example/mcp")) }))).toContain("the server is on the homepage's domain");
-      expect(await failures(setup({ files: edit("manifest.json", (manifest) => Object.assign(manifest, { homepage: "https://203.0.113.7", mcp: { url: "https://203.0.113.7/mcp", transport: "streamable-http" } })) }))).toContain("the server is on the homepage's domain");
+      // On an IP address neither URL is plain, so there is no domain to be on: it fails before it gets that far.
+      expect(await failures(setup({ files: edit("manifest.json", (manifest) => Object.assign(manifest, { homepage: "https://203.0.113.7", mcp: { url: "https://203.0.113.7/mcp", transport: "streamable-http" } })) }))).toEqual(expect.arrayContaining(["the manifest's name and URLs are plain", "the manifest names its server"]));
     });
 
     it("fails without a DNS record in which the homepage's domain names this repository", async () => {
@@ -182,6 +183,48 @@ describe("validateSubmission", () => {
       // mallory submits as Uniswap from her own repository. uniswap.org's DNS says nothing about her.
       const run = setup({ input: { reserved: [], author: "mallory" }, files: (files) => (asUniswap(files), edit("entry.json", (entry) => Object.assign(entry, { repo: "https://github.com/mallory/uniswap-mcp", maintainers: ["mallory"] }))(files)) });
       expect(await failures(run)).toContain("the homepage's domain names this repository");
+    });
+  });
+
+  describe("names and URLs that are not what they look like", () => {
+    const plain = "the manifest's name and URLs are plain";
+    const withHomepage = (homepage: string, mcp = "https://mcp.evil.example/mcp") => edit("manifest.json", (manifest) => Object.assign(manifest, { homepage, mcp: { url: mcp, transport: "streamable-http" } }));
+
+    it("fails a homepage that reads as one site and is on another, and proves nothing from the other's DNS", async () => {
+      const asked: string[] = [];
+      const run = setup({ files: withHomepage("https://uniswap.org@evil.example/"), deps: { resolveTxt: async (name) => (asked.push(name), ["cryptomcp-repo=eziee-ai/protocol-mcp-template"]) } });
+      const failed = await failures(run);
+      expect(failed).toEqual(expect.arrayContaining([plain, "the server is on the homepage's domain", "the homepage's domain names this repository"]));
+      // The attacker's domain was never even asked: a homepage that is not plain has no host to prove.
+      expect(asked).toEqual([]);
+    });
+
+    it.each([
+      ["a javascript: homepage", "javascript:alert(document.domain)"],
+      ["an http: homepage", "http://yourprotocol.example"],
+      ["a homepage on an IP address", "https://203.0.113.7"],
+      ["a homepage on an internationalised domain", "https://xn--niswap-235b.org"],
+      ["a homepage with a password", "https://a:b@yourprotocol.example"],
+      ["an overlong homepage", `https://yourprotocol.example/${"a".repeat(200)}`],
+    ])("fails %s", async (_name, homepage) => {
+      expect(await failures(setup({ files: withHomepage(homepage, "https://mcp.yourprotocol.example/mcp") }))).toContain(plain);
+    });
+
+    it("fails a contract source that is not plain https", async () => {
+      expect(await failures(setup({ files: edit("manifest.json", (manifest) => (manifest.contracts["900001"].router.source = "javascript:alert(1)")) }))).toContain(plain);
+    });
+
+    it("fails a name with a look-alike letter, whatever it imitates", async () => {
+      for (const codePoint of [0x0131, 0x0456, 0x0430]) {
+        const name = `Un${String.fromCodePoint(codePoint)}swap`;
+        expect(await failures(setup({ files: edit("manifest.json", (manifest) => (manifest.name = name)) }))).toContain(plain);
+      }
+    });
+
+    it("fails a reserved name wherever it sits in the display name or the id", async () => {
+      const reserved = "the name is not a reserved one";
+      for (const name of ["The Uniswap Protocol", "Official UNISWAP Markets", "Uni-swap", "U.n.i.s.w.a.p"]) expect(await failures(setup({ files: edit("manifest.json", (manifest) => (manifest.name = name)) }))).toContain(reserved);
+      expect(await failures(setup({ input: { id: "real-uniswap-v4" }, files: edit("manifest.json", (manifest) => (manifest.id = "real-uniswap-v4")) }))).toContain(reserved);
     });
   });
 });

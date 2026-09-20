@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { loadRegistry, type RegistryEntry } from "../../../lib/registry";
 import { loadChains, type Chains } from "../../../lib/chains";
 import { parseStatus, EMPTY_STATUS, type Status, type ProtocolStatus } from "../../../lib/status";
+import { safeHref } from "./safeHref";
 
 /*
  * NOTE ON RELATIVE PATHS: the task brief that specified this file said to import `loadRegistry` from
@@ -29,6 +30,12 @@ const REGISTRY_ROOT = process.env.CRYPTOMCP_REGISTRY_DIR ? path.resolve(SITE_ROO
 
 const STATUS_URL = process.env.CRYPTOMCP_STATUS_URL ?? DEFAULT_STATUS_URL;
 
+// Both overrides exist for the build test. Neither may point outside this repository: the build reads what it is
+// pointed at and publishes it.
+const inside = (target: string) => target === REPO_ROOT || target.startsWith(`${REPO_ROOT}${path.sep}`);
+if (!inside(REGISTRY_ROOT)) throw new Error("CRYPTOMCP_REGISTRY_DIR must be inside the repository");
+if (STATUS_URL.startsWith("file:") && !inside(fileURLToPath(STATUS_URL))) throw new Error("a file: CRYPTOMCP_STATUS_URL must be inside the repository");
+
 const CHAINS_PATH = path.resolve(REPO_ROOT, "chains.json");
 
 /** Every merged protocol, parsed again by the kit. Throws and fails the build when any entry does not parse. */
@@ -49,19 +56,24 @@ async function readStatusFile(fileUrl: string): Promise<string | null> {
 
 /**
  * `status.json`, from the `status` branch over HTTPS, or from disk when `CRYPTOMCP_STATUS_URL` starts with
- * `file:` (how the build test points at a fixture). A 404 (or a missing fixture file) is an empty status: the
- * branch has not been created yet. Any other failure — network error, a non-2xx status, invalid JSON, a status
+ * `file:` (how the build test points at a fixture). A 404 (or a missing fixture file) is an empty status ONLY
+ * while the registry itself is empty: the branch has not been created yet. With protocols listed, a 404 is the
+ * status branch deleted or moved, and building anyway would show a Failing server as merely Listed. Any other failure — network error, a non-2xx status, invalid JSON, a status
  * that does not parse — throws and fails the build, so Vercel keeps serving the last good deployment instead of a
  * fresh one with no proven state.
  */
 async function fetchStatus(url: string, now: string): Promise<Status> {
+  const missing = () => {
+    if (registry.length > 0) throw new Error(`status not found at ${url}, and the registry lists ${registry.length} protocol(s). Refusing to build a site that would show every one of them as Listed`);
+    return EMPTY_STATUS(now);
+  };
   if (url.startsWith("file:")) {
     const text = await readStatusFile(url);
-    if (text === null) return EMPTY_STATUS(now);
+    if (text === null) return missing();
     return parseStatus(JSON.parse(text));
   }
-  const response = await fetch(url);
-  if (response.status === 404) return EMPTY_STATUS(now);
+  const response = await fetch(url, { redirect: "error" });
+  if (response.status === 404) return missing();
   if (!response.ok) throw new Error(`status fetch failed: ${url} responded ${response.status} ${response.statusText}`);
   return parseStatus(await response.json());
 }
@@ -74,7 +86,8 @@ const STATE_ORDER: Record<DisplayState, number> = { conformant: 0, failing: 1, u
 
 /** This protocol's status row, or `undefined` when nothing has ever checked it (also shown as "unchecked"/Listed). */
 export function statusFor(id: string): ProtocolStatus | undefined {
-  return status.protocols[id];
+  // Not `status.protocols[id]`: "constructor" is a valid id, and a plain lookup finds Object.prototype's.
+  return Object.hasOwn(status.protocols, id) ? status.protocols[id] : undefined;
 }
 
 export function stateFor(id: string): DisplayState {
@@ -108,7 +121,8 @@ export function addressUrl(chainId: number, address: string): string | null {
 export interface RegistryJsonEntry {
   id: string;
   name: string;
-  homepage: string;
+  /** null when it is not a plain https: URL. Consumers make links out of this; it is never handed to them raw. */
+  homepage: string | null;
   chains: number[];
   actions: string[];
   state: DisplayState;
@@ -124,7 +138,7 @@ export function toRegistryJson(entry: RegistryEntry): RegistryJsonEntry {
   return {
     id: entry.id,
     name: entry.manifest.name,
-    homepage: entry.manifest.homepage,
+    homepage: safeHref(entry.manifest.homepage),
     chains: entry.manifest.chains,
     actions: Object.keys(entry.manifest.actions),
     state,

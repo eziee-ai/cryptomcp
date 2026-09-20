@@ -19,6 +19,7 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.4",
     "node-html-parser": "^7.0.1",
+    "parse5": "^7.2.1",
     "typescript": "^5.8.0",
     "vitest": "^2.1.9"
   }

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseManifest, type Manifest } from "../kit/manifest";
 import { parseEntry, parseSamples, type Entry, type Samples } from "./entry";
+import { manifestUrlProblems } from "./identity";
 import { iconProblems } from "./svg";
 
 /** One merged protocol, read from `registry/<id>/` and parsed again: nothing downstream trusts that a merge was careful. */
@@ -33,6 +34,8 @@ export function loadRegistry(root: string): RegistryEntry[] {
         const dir = join(root, id);
         const manifest = parseManifest(readJson(join(dir, "manifest.json")));
         if (manifest.id !== id) throw new Error(`the manifest's id is "${manifest.id}"`);
+        const urls = manifestUrlProblems(manifest);
+        if (urls.length > 0) throw new Error(`manifest.json: ${urls.join("; ")}`);
         const iconPath = join(dir, "icon.svg");
         const problems = iconProblems(readFileSync(iconPath));
         if (problems.length > 0) throw new Error(`icon.svg: ${problems.join("; ")}`);

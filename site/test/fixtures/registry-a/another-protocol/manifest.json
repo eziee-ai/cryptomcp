@@ -6,9 +6,9 @@
   "homepage": "https://another-protocol.example",
   "icon": "icon.svg",
   "mcp": { "url": "https://mcp.another-protocol.example/mcp", "transport": "streamable-http" },
-  "chains": [900001],
+  "chains": [5042002],
   "contracts": {
-    "900001": {
+    "5042002": {
       "vault": {
         "address": "0x0000000000000000000000000000000000000501",
         "role": "other",
@@ -18,7 +18,7 @@
     }
   },
   "tokens": {
-    "900001": [{ "address": "0x0000000000000000000000000000000000000601", "symbol": "ANP", "name": "Another Protocol Token", "decimals": 18, "trust": "canonical" }]
+    "5042002": [{ "address": "0x0000000000000000000000000000000000000601", "symbol": "ANP", "name": "Another Protocol Token", "decimals": 18, "trust": "canonical" }]
   },
   "actions": {
     "deposit": {

@@ -9,12 +9,14 @@ entry is always judged by the validator alone.
 - `manifest.json` must parse with eziee's `parseManifest` and must name your server in `mcp.url` (`https:`).
   It must be byte for byte the file at `registry/<id>/manifest.json` in your own public repository at the commit you
   put in `entry.json`. Tag that commit.
+- The manifest's `name` is printable ASCII. `homepage`, `mcp.url` and every contract's `source` are plain `https:`
+  URLs: no user name or password, a DNS name, not an internationalised (`xn--`) domain, at most 200 characters.
 - `homepage` must be on a DNS name you control, `mcp.url` on that name or a subdomain of it, and a TXT record at
   `_cryptomcp.<that name>` must hold `cryptomcp-repo=<owner>/<repository>`. Check it with
   `dig +short TXT _cryptomcp.yourprotocol.example`. Keep it: the daily check asks again, and a protocol whose domain
   stops naming its repository is shown as Failing.
-- A first submission may not use a name in [`reserved.json`](reserved.json), as its id or at the start of its
-  display name. If you are that protocol, say so in the pull request; a maintainer who has confirmed it releases the
+- A first submission may not use a name in [`reserved.json`](reserved.json), in its id or anywhere in its display
+  name. If you are that protocol, say so in the pull request; a maintainer who has confirmed it releases the
   name in a pull request of their own.
 - Every chain in the manifest must already be in [`chains.json`](chains.json).
 - `samples.json` has one intent per action. An action without a sample can never be shown to conform.

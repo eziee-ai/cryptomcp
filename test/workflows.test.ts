@@ -98,6 +98,18 @@ describe.each(Object.entries(PINNED))("%s", (name, pinned) => {
     expect(code(name)).not.toMatch(/write-all|read-all/);
   });
 
+  it("runs every job on a GitHub-hosted runner, in no container, with no service beside it, in the default shell", () => {
+    // Keys are pinned by ALLOWLIST. `container:` runs every pinned step inside an image of someone's choosing, with
+    // the token in its environment; `services:` starts one beside it; `defaults:` swaps the shell the pinned `run:`
+    // lines are handed to; a self-hosted `runs-on` is somebody's machine. A key this list does not name fails here.
+    expect(Object.keys(workflow).sort()).toEqual(["concurrency", "jobs", "name", "on", "permissions"]);
+    for (const [job, value] of Object.entries(workflow.jobs)) {
+      expect((value as { "runs-on"?: unknown })["runs-on"], job).toBe("ubuntu-latest");
+      for (const key of Object.keys(value)) expect(["if", "needs", "runs-on", "timeout-minutes", "permissions", "environment", "outputs", "strategy", "steps"], `${job}.${key}`).toContain(key);
+      for (const step of value.steps ?? []) for (const key of Object.keys(step)) expect(["uses", "with", "run", "env", "id", "name"], `${job} step key ${key}`).toContain(key);
+    }
+  });
+
   it("installs from the lockfile without running dependency scripts", () => {
     for (const line of code(name).split("\n").filter((entry) => /pnpm install/.test(entry))) expect(line).toMatch(/--frozen-lockfile.*--ignore-scripts/);
   });

@@ -124,7 +124,10 @@ In order. The first failure in the path guard stops the run; later groups all ru
 
 **Identity** (added after the security review, 2026-09-20: without it, `id: uniswap` with someone else's homepage
 passed every check)
-- A first submission may not use a name in `reserved.json`, as its id or at the start of its display name.
+- The manifest's `name` is printable ASCII, and `homepage`, `mcp.url` and each contract's `source` are plain `https:`
+  URLs: no credentials (`https://uniswap.org@evil.example/` is on evil.example), a DNS name, not an IDN. The manifest
+  schema itself takes any URL; this is enforced by the validator and again by everything that reads the registry.
+- A first submission may not use a name in `reserved.json`, in its id or anywhere in its display name.
 - `mcp.url` is on the homepage's host or a subdomain of it, and the homepage is on a DNS name, not an IP address.
 - A DNS TXT record at `_cryptomcp.<homepage host>` holds `cryptomcp-repo=<owner>/<repository>` for `entry.repo`.
   This is one lookup through the runner's resolver; nothing is fetched from the domain. The live check (§7) asks
@@ -200,8 +203,9 @@ States as shown: **Conformant**, with the date checked; **Failing**, with the da
 `unchecked`. Listed makes no claim about the live server, and the page says so.
 
 **Build.** Reads `registry/` from the checkout and parses every manifest again with the kit; a manifest that does
-not parse fails the build. Fetches `status.json` from the `status` branch over HTTPS. If that fetch fails for any
-reason other than the branch not existing yet, the build fails: Vercel keeps serving the last deployment, whose
+not parse fails the build. Fetches `status.json` from the `status` branch over HTTPS. If that fetch fails, the build
+fails, with one exception: a 404 while the registry is still empty, before the branch exists. With protocols listed a
+404 fails too: Vercel keeps serving the last deployment, whose
 states were true, in preference to a fresh one with none.
 
 **Untrusted content.** Everything from a submission is rendered as text. `homepage`, `repo` and `links` are rendered
@@ -209,7 +213,10 @@ as links only when `https:`, with `rel="noopener noreferrer nofollow"`. Icons ar
 `<img>`, which does not run scripts. `vercel.json` sets `Content-Security-Policy: default-src 'none'; img-src 'self';
 style-src 'self'; font-src 'self'; script-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'`,
 plus `X-Content-Type-Options`, `Referrer-Policy` and HSTS. Stylesheets are emitted as files
-(`build.inlineStylesheets: 'never'`) and both fonts are self-hosted, so nothing needs an exception. `/registry/*.svg` is additionally served with
+(`build.inlineStylesheets: 'never'`). DM Mono is self-hosted. Satoshi's licence does not allow its files in a public
+repository, so it is loaded from Fontshare's stylesheet: `style-src` and `font-src` each allow that one origin.
+Accepted risk: a compromised Fontshare could restyle the page (not script it). Pinning the font by hash at build
+time would remove it. `/registry/*.svg` is additionally served with
 `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox`, so opening an icon directly runs
 nothing either.
 

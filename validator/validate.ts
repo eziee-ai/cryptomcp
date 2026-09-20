@@ -3,7 +3,7 @@ import { checkChain, type Finding } from "../kit/conform/checks";
 import { parseManifest, type Manifest } from "../kit/manifest";
 import type { Chains } from "../lib/chains";
 import { parseEntry, parseSamples, type Entry, type Samples } from "../lib/entry";
-import { domainProofFinding, reservedNameFinding, serverHostFinding, type ResolveTxt } from "../lib/identity";
+import { domainProofFinding, manifestUrlProblems, reservedNameFinding, serverHostFinding, type ResolveTxt } from "../lib/identity";
 import { iconProblems, MAX_ICON_BYTES } from "../lib/svg";
 import { ENTRY_FILES } from "./pathGuard";
 
@@ -106,9 +106,11 @@ export async function validateSubmission(input: ValidateInput, deps: ValidateDep
   if (manifest) {
     findings.push(manifest.id === input.id ? pass("the manifest's id is the folder's name") : fail("the manifest's id is the folder's name", `the folder is registry/${input.id}/ and the manifest says "${manifest.id}"`));
 
-    const server = manifest.mcp ? new URL(manifest.mcp.url) : undefined;
-    const serverOk = server !== undefined && server.protocol === "https:" && server.username === "" && server.password === "";
-    findings.push(serverOk ? pass("the manifest names its server") : fail("the manifest names its server", "mcp.url must be present and an https: URL without credentials; the live check calls it"));
+    const urls = manifestUrlProblems(manifest);
+    findings.push(urls.length === 0 ? pass("the manifest's name and URLs are plain") : fail("the manifest's name and URLs are plain", urls.join("; ")));
+
+    const serverOk = manifest.mcp !== undefined && !urls.some((problem) => problem.startsWith("mcp.url"));
+    findings.push(serverOk ? pass("the manifest names its server") : fail("the manifest names its server", "mcp.url must be present and a plain https: URL; the live check calls it"));
     if (serverOk) findings.push(serverHostFinding(manifest));
     // A new entry may not take a well-known name. An existing one keeps the name it was reviewed under.
     if (input.existingMaintainers === null) findings.push(reservedNameFinding(manifest, input.reserved));
