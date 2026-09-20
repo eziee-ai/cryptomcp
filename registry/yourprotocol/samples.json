@@ -1,0 +1,15 @@
+{
+  "swap": {
+    "chainId": 900001,
+    "intent": {
+      "tokenIn": "0x0000000000000000000000000000000000000201",
+      "tokenOut": "0x0000000000000000000000000000000000000202",
+      "amountIn": "50",
+      "maxSlippageBps": 50
+    }
+  },
+  "closePosition": {
+    "chainId": 900001,
+    "intent": { "positionId": "7" }
+  }
+}
