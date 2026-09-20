@@ -1,0 +1,37 @@
+# pull_request_target runs with THIS repository's token, in the context of the BASE branch, for pull requests from
+# anyone. It is safe here for one reason only: nothing from the pull request is ever checked out, installed,
+# imported or executed. The checkout below is `main`. The validator reads the pull request's changed files through
+# the GitHub API, as bytes, under names it chose itself.
+#
+# Do not add `ref:` to the checkout. Do not reference a secret. Do not add a step that runs a file from the pull
+# request. test/workflows.test.ts fails the build if any of that changes.
+name: registry
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: validate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter .
+      - run: pnpm validate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

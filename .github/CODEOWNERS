@@ -1,0 +1,15 @@
+# Every change needs a maintainer's approval. registry/ is no exception: the difference is that the validator
+# judges it first, so a reviewer starts from a report instead of from nothing.
+*                 @hskang9
+
+# Named one by one so that a later, narrower rule can never quietly take these away from the maintainers.
+/.github/         @hskang9
+/validator/       @hskang9
+/lib/             @hskang9
+/kit/             @hskang9
+/kit.lock         @hskang9
+/chains.json      @hskang9
+/live-check/      @hskang9
+/scripts/         @hskang9
+/site/            @hskang9
+/registry/        @hskang9
