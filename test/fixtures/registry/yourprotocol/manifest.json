@@ -1,0 +1,48 @@
+{
+  "manifestVersion": 1,
+  "id": "yourprotocol",
+  "name": "Your Protocol",
+  "version": "1.0.0",
+  "homepage": "https://yourprotocol.example",
+  "icon": "icon.svg",
+  "mcp": { "url": "https://mcp.yourprotocol.example/mcp", "transport": "streamable-http" },
+  "chains": [900001],
+  "contracts": {
+    "900001": {
+      "router": {
+        "address": "0x0000000000000000000000000000000000000101",
+        "role": "router",
+        "source": "https://yourprotocol.example/deployments.json",
+        "proxy": { "type": "none" }
+      }
+    }
+  },
+  "tokens": {
+    "900001": [
+      { "address": "0x0000000000000000000000000000000000000201", "symbol": "USDC", "name": "USD Coin", "decimals": 6, "trust": "canonical" },
+      { "address": "0x0000000000000000000000000000000000000202", "symbol": "WETH", "name": "Wrapped Ether", "decimals": 18, "trust": "listed" }
+    ]
+  },
+  "actions": {
+    "swap": {
+      "title": "Swap",
+      "spends": true,
+      "calls": [
+        {
+          "contract": "router",
+          "abi": "function swapExactIn(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, address to, uint256 deadline)",
+          "spend": [{ "token": { "arg": "tokenIn" }, "amount": { "arg": "amountIn" } }],
+          "receive": { "token": { "arg": "tokenOut" }, "minAmount": { "arg": "minOut" } },
+          "recipient": { "arg": "to" },
+          "deadline": { "arg": "deadline" }
+        }
+      ]
+    },
+    "closePosition": {
+      "title": "Close position",
+      "spends": false,
+      "alwaysAsk": true,
+      "calls": [{ "contract": "router", "abi": "function close(uint256 positionId, address to)", "recipient": { "arg": "to" } }]
+    }
+  }
+}

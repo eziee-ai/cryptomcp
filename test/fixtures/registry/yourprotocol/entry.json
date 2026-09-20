@@ -1,0 +1,7 @@
+{
+  "repo": "https://github.com/eziee-ai/protocol-mcp-template",
+  "commit": "c1df5263f4aa21c84442f9890df25982852ee2ed",
+  "tagline": "The example protocol from the template",
+  "links": { "docs": "https://yourprotocol.example/docs" },
+  "maintainers": ["alice"]
+}
