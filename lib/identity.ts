@@ -58,7 +58,10 @@ export const PROOF_PREFIX = "cryptomcp-repo=";
 /** The homepage's host as a plain DNS name without a leading `www.`, or null for an IP address, `localhost` and the like. */
 export function siteHost(manifest: Manifest): string | null {
   if (urlProblem(manifest.homepage) !== null) return null;
-  return new URL(manifest.homepage).hostname.toLowerCase().replace(/^www\./, "");
+  const host = new URL(manifest.homepage).hostname.toLowerCase();
+  // `www.` is dropped only when a real name is left: `www.com` is not "com", which every .com host would be under.
+  const bare = host.replace(/^www\./, "");
+  return HOST.test(bare) ? bare : host;
 }
 
 const pass = (check: string, detail = ""): Finding => ({ check, status: "pass", detail });
@@ -104,9 +107,11 @@ export function reservedNameFinding(manifest: Manifest, reserved: string[]): Fin
   const check = "the name is not a reserved one";
   const id = squash(manifest.id);
   const name = squash(manifest.name);
-  // Short words match whole ("sky" must not block "Skyline"). Longer ones match anywhere: "Uniswap V4", "The
+  // Short words match whole words only ("sky" must not block "Skyline"). Longer ones match anywhere: "Uniswap V4", "The
   // Uniswap Protocol". The name is ASCII by the time it gets here (manifestUrlProblems), so nothing was deleted from
   // it on the way to this comparison: a look-alike letter is refused there, not squashed out of a match here.
-  const hit = reserved.find((word) => id === word || name === word || (word.length >= 5 && (id.includes(word) || name.includes(word))));
+  // A short word also matches as one of the name's or the id's own words: "Sky Protocol", "aave-markets".
+  const words = new Set([...manifest.name.toLowerCase().split(/[^a-z0-9]+/), ...manifest.id.split("-")].filter(Boolean));
+  const hit = reserved.find((word) => id === word || name === word || words.has(word) || (word.length >= 5 && (id.includes(word) || name.includes(word))));
   return hit === undefined ? pass(check) : fail(check, `"${hit}" is reserved, so that nobody lists a well-known protocol by getting here first. If this is that protocol, say so in the pull request; a maintainer who has confirmed it releases the name in a pull request of their own`);
 }

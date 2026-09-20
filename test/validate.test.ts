@@ -221,6 +221,18 @@ describe("validateSubmission", () => {
       }
     });
 
+    it("fails a short reserved word when it is one of the name's or the id's own words, and only then", async () => {
+      const reserved = "the name is not a reserved one";
+      for (const name of ["Sky Protocol", "Official SKY Markets", "sky.finance"]) expect(await failures(setup({ files: edit("manifest.json", (manifest) => (manifest.name = name)) }))).toContain(reserved);
+      expect(await failures(setup({ input: { id: "sky-markets" }, files: edit("manifest.json", (manifest) => (manifest.id = "sky-markets")) }))).toContain(reserved);
+      expect(await failures(setup({ files: edit("manifest.json", (manifest) => (manifest.name = "Skyline Husky")) }))).toEqual([]);
+    });
+
+    it("does not take www.com for the domain com", async () => {
+      const run = setup({ files: edit("manifest.json", (manifest) => Object.assign(manifest, { homepage: "https://www.com/", mcp: { url: "https://mcp.evil.com/mcp", transport: "streamable-http" } })) });
+      expect(await failures(run)).toContain("the server is on the homepage's domain");
+    });
+
     it("fails a reserved name wherever it sits in the display name or the id", async () => {
       const reserved = "the name is not a reserved one";
       for (const name of ["The Uniswap Protocol", "Official UNISWAP Markets", "Uni-swap", "U.n.i.s.w.a.p"]) expect(await failures(setup({ files: edit("manifest.json", (manifest) => (manifest.name = name)) }))).toContain(reserved);

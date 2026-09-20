@@ -36,22 +36,23 @@ const NODE = "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020";
 const UPLOAD = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02";
 const DOWNLOAD = "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093";
 
-const PINNED: Record<string, { triggers: string[]; uses: string[]; expressions: string[]; permissions: Record<string, Record<string, string>> }> = {
+const PINNED: Record<string, { on: unknown; uses: string[]; expressions: string[]; permissions: Record<string, Record<string, string>> }> = {
   "validate.yml": {
-    triggers: ["pull_request_target"],
+    // `synchronize` is what re-judges a pull request after a push. Without it a green report outlives what it judged.
+    on: { pull_request_target: { types: ["opened", "synchronize", "reopened", "ready_for_review"] } },
     uses: [CHECKOUT, PNPM, NODE],
     // The pull request's NUMBER, in a concurrency group. Nothing else from the event: not its title, body, branch or SHA.
     expressions: ["github.event.pull_request.number", "github.token"],
     permissions: { validate: { contents: "read", "pull-requests": "write" } },
   },
   "ci.yml": {
-    triggers: ["pull_request", "push"],
+    on: { push: { branches: ["main"] }, pull_request: null },
     uses: [CHECKOUT, PNPM, NODE],
     expressions: ["github.ref"],
     permissions: { check: { contents: "read" } },
   },
   "live-check.yml": {
-    triggers: ["schedule", "workflow_dispatch"],
+    on: { schedule: [{ cron: "17 5 * * *" }], workflow_dispatch: null },
     uses: [CHECKOUT, PNPM, NODE, CHECKOUT, PNPM, NODE, UPLOAD, CHECKOUT, PNPM, NODE, DOWNLOAD],
     expressions: ["fromJSON(needs.list.outputs.matrix)", "github.token", "matrix.protocol.id", "secrets.VERCEL_DEPLOY_HOOK", "secrets[format('MCP_KEY_{0}', matrix.protocol.key)]", "steps.list.outputs.empty", "steps.list.outputs.matrix"],
     permissions: { list: { contents: "read" }, check: { contents: "read" }, publish: { contents: "write" } },
@@ -72,8 +73,8 @@ describe("the set of workflows", () => {
 describe.each(Object.entries(PINNED))("%s", (name, pinned) => {
   const workflow = load(name);
 
-  it("is triggered by exactly these events", () => {
-    expect(Object.keys(workflow.on).sort()).toEqual(pinned.triggers);
+  it("is triggered by exactly these events, with exactly these filters: no paths-ignore, no narrowed types", () => {
+    expect(workflow.on).toEqual(pinned.on);
   });
 
   it("uses exactly these actions, each pinned to a full commit SHA, and none that is local or a Docker image", () => {
