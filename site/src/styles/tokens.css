@@ -12,6 +12,10 @@
   --panel: #181c16;
   --panel-raised: #242a20;
   --chalk: #f3f4ed;
+  /* The tile behind a protocol's icon. The SAME light colour in both themes, and not redefined below: an icon drawn
+     with currentColor renders black inside <img>, so on a dark tile it cannot be seen. */
+  --icon-tile: #f3f4ed;
+  --icon-tile-border: #d5d8cc;
   --muted: #a9afa2;
   --lime: #d7f43b;
   --lime-ink: #485a08;
