@@ -25,6 +25,8 @@ export interface GitHub {
   getPr(repo: string, pr: number): Promise<{ headSha: string; changedFiles: number }>;
   /** The commit a branch points at NOW. */
   getBranchHead(repo: string, branch: string): Promise<string>;
+  /** Whether this login can push to the repository: write, maintain or admin. Anything unknown is false. */
+  canWrite(repo: string, login: string): Promise<boolean>;
   getFile(repo: string, path: string, ref: string): Promise<RemoteFile | null>;
   getRepo(repo: string): Promise<RepoInfo | null>;
   hasCommitsBy(repo: string, login: string): Promise<boolean>;
@@ -81,6 +83,14 @@ export function createGitHub(token: string, doFetch: typeof fetch = fetch): GitH
       const sha = String(found?.object?.sha ?? "");
       if (!SHA.test(sha)) throw new Error("the base branch could not be resolved");
       return sha;
+    },
+
+    async canWrite(repo, login) {
+      // A bot's login ("dependabot[bot]") is not a user the permission endpoint knows. It cannot write.
+      if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(login)) return false;
+      const found = await get<{ permission?: string }>(`/repos/${checked(repo)}/collaborators/${encodeURIComponent(login)}/permission`);
+      // `permission` is the legacy four-value field: admin, write, read or none. "maintain" reports as write.
+      return found?.permission === "admin" || found?.permission === "write";
     },
 
     async getFile(repo, path, ref) {

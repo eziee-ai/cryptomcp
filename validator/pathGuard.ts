@@ -17,18 +17,21 @@ export type Guard = { kind: "submission"; id: string } | { kind: "maintainer-cha
 export const ENTRY_FILES = ["manifest.json", "samples.json", "icon.svg", "entry.json"] as const;
 export const MAX_FILES = ENTRY_FILES.length;
 
-// Not MEMBER: membership of the organisation is not write access to this repository, and says nothing about owning its code.
-const MAINTAINER_ASSOCIATIONS = new Set(["OWNER", "COLLABORATOR"]);
 // GitHub reserves the `[bot]` suffix for apps, so no person can hold this login.
 const DEPENDABOT = "dependabot[bot]";
 
 const inRegistry = (path: string) => path === "registry" || path.startsWith("registry/");
 
-export function guardPaths(files: ChangedFile[], author: { login: string; association: string }): Guard {
+/**
+ * `canWrite` is the author's REAL permission on this repository, asked of GitHub (write, maintain or admin). It is
+ * not the event's `author_association`: on an organisation's repository GitHub calls even the organisation's owner
+ * a MEMBER, and calls a member with no access to this repository a MEMBER too. The label cannot tell them apart.
+ */
+export function guardPaths(files: ChangedFile[], author: { login: string; canWrite: boolean }): Guard {
   const refuse = (...problems: string[]): Guard => ({ kind: "refused", problems });
   if (files.length === 0) return refuse("the pull request changes no files");
 
-  const maintainer = MAINTAINER_ASSOCIATIONS.has(author.association);
+  const maintainer = author.canWrite;
   const paths = files.flatMap((file) => [file.filename, ...(file.previous_filename === undefined ? [] : [file.previous_filename])]);
 
   // Refused outright, whoever sends them: a path that is not what it looks like.

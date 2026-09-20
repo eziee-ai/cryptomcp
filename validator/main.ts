@@ -22,7 +22,7 @@ import { SIZE_LIMITS, validateSubmission } from "./validate";
 
 export interface PullRequestEvent {
   repository: { full_name: string; default_branch: string };
-  pull_request: { number: number; author_association: string; user: { login: string }; head: { sha: string }; base: { ref: string } };
+  pull_request: { number: number; user: { login: string }; head: { sha: string }; base: { ref: string } };
 }
 
 export interface RunDeps {
@@ -36,7 +36,7 @@ export interface RunDeps {
 /** Judge one pull request. Returns the findings and the report it posted; `ok` is what the required check reports. */
 export async function run(event: PullRequestEvent, deps: RunDeps): Promise<{ ok: boolean; findings: Finding[]; report: string }> {
   const repo = event.repository.full_name;
-  const { number, head, base, user, author_association: association } = event.pull_request;
+  const { number, head, base, user } = event.pull_request;
   const finish = async (findings: Finding[], id?: string, kind: "submission" | "maintainer-change" = "submission") => {
     const report = renderReport(findings, { id, sha: head.sha, kind });
     await deps.github.upsertComment(repo, number, MARKER, report);
@@ -58,7 +58,15 @@ export async function run(event: PullRequestEvent, deps: RunDeps): Promise<{ ok:
   // shown to the path guard, and a guard that has not seen every path has not guarded anything.
   if (changed.length !== now.changedFiles) return finish([{ check: "every changed file was listed", status: "fail", detail: `GitHub counts ${now.changedFiles} changed files and listed ${changed.length}. Push again; if it persists the pull request is too large to judge` }]);
 
-  const guard = guardPaths(changed, { login: user.login, association });
+  // Asked of GitHub, never taken from the event's author_association (see guardPaths). If GitHub cannot be asked,
+  // the author is treated as having no access: the run fails closed.
+  let canWrite = false;
+  try {
+    canWrite = await deps.github.canWrite(repo, user.login);
+  } catch {
+    canWrite = false;
+  }
+  const guard = guardPaths(changed, { login: user.login, canWrite });
   if (guard.kind === "refused") return finish(guard.problems.map((detail) => ({ check: "the pull request touches one registry entry and nothing else", status: "fail" as const, detail })));
   if (guard.kind === "maintainer-change") return finish([{ check: "registry submission", status: "note", detail: "this is a maintainer's change, not a submission. The validator has nothing to judge; code owners review it" }], undefined, "maintainer-change");
 

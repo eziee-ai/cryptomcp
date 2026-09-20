@@ -3,8 +3,8 @@ import { guardPaths, type ChangedFile } from "../validator/pathGuard";
 
 const added = (...names: string[]): ChangedFile[] => names.map((filename) => ({ filename, status: "added" }));
 const FOUR = ["manifest.json", "samples.json", "icon.svg", "entry.json"].map((name) => `registry/acme/${name}`);
-const outsider = { login: "mallory", association: "NONE" };
-const owner = { login: "hskang9", association: "OWNER" };
+const outsider = { login: "mallory", canWrite: false };
+const owner = { login: "hskang9", canWrite: true };
 
 describe("guardPaths", () => {
   it("accepts a submission: the four files of one entry", () => {
@@ -54,20 +54,17 @@ describe("guardPaths", () => {
   describe("a change that touches no entry", () => {
     const workflow = added(".github/workflows/validate.yml", "validator/main.ts");
 
-    it("is refused from an outside contributor", () => {
-      // MEMBER too: belonging to the organisation is not write access to this repository.
-      for (const association of ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR", "FIRST_TIMER", "MANNEQUIN", "MEMBER", ""]) {
-        expect(guardPaths(workflow, { login: "mallory", association }).kind).toBe("refused");
-      }
+    it("is refused from anyone who cannot write to this repository", () => {
+      expect(guardPaths(workflow, { login: "mallory", canWrite: false }).kind).toBe("refused");
     });
 
-    it("is left to code owners when it comes from a maintainer or from Dependabot", () => {
-      for (const association of ["OWNER", "COLLABORATOR"]) expect(guardPaths(workflow, { login: "x", association })).toEqual({ kind: "maintainer-change" });
-      expect(guardPaths(added("package.json", "pnpm-lock.yaml"), { login: "dependabot[bot]", association: "NONE" })).toEqual({ kind: "maintainer-change" });
+    it("is left to code owners when it comes from someone who can write, or from Dependabot", () => {
+      expect(guardPaths(workflow, { login: "hskang9", canWrite: true })).toEqual({ kind: "maintainer-change" });
+      expect(guardPaths(added("package.json", "pnpm-lock.yaml"), { login: "dependabot[bot]", canWrite: false })).toEqual({ kind: "maintainer-change" });
     });
 
     it("does not take a login that merely resembles Dependabot", () => {
-      expect(guardPaths(workflow, { login: "dependabot", association: "NONE" }).kind).toBe("refused");
+      expect(guardPaths(workflow, { login: "dependabot", canWrite: false }).kind).toBe("refused");
     });
   });
 });

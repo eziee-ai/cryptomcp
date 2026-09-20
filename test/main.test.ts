@@ -6,15 +6,17 @@ import { fakeClient, fixtureFiles, FIXTURE_CHAINS, json, parsed } from "./helper
 
 const HEAD = "b".repeat(40);
 const BASE = "a".repeat(40);
-const event = (login = "alice", association = "NONE"): PullRequestEvent => ({ repository: { full_name: "eziee-ai/cryptomcp", default_branch: "main" }, pull_request: { number: 7, author_association: association, user: { login }, head: { sha: HEAD }, base: { ref: "main" } } });
+const event = (login = "alice"): PullRequestEvent => ({ repository: { full_name: "eziee-ai/cryptomcp", default_branch: "main" }, pull_request: { number: 7, user: { login }, head: { sha: HEAD }, base: { ref: "main" } } });
 
 /** A GitHub that holds a pull request's files at HEAD, main's at BASE, and the protocol's own repository. */
-function fakeGitHub(options: { changed: ChangedFile[]; head?: Record<string, RemoteFile>; base?: Record<string, RemoteFile>; counted?: number; headNow?: string }) {
+function fakeGitHub(options: { changed: ChangedFile[]; head?: Record<string, RemoteFile>; base?: Record<string, RemoteFile>; counted?: number; headNow?: string; writers?: string[] | "unreachable" }) {
   const posted: string[] = [];
   const reads: Array<[string, string, string]> = [];
   const manifest = fixtureFiles().get("manifest.json")!;
   const github: GitHub = {
     listPrFiles: async () => options.changed,
+    // Who can push to this repository, as GitHub answers it. hskang9 is the organisation's owner.
+    canWrite: async (_repo, login) => (options.writers === "unreachable" ? Promise.reject(new Error("502")) : (options.writers ?? ["hskang9"]).includes(login)),
     getPr: async () => ({ headSha: options.headNow ?? HEAD, changedFiles: options.counted ?? options.changed.length }),
     // BASE stands for main as it is now. Nothing in a run may read main at any other commit.
     getBranchHead: async (_repo, branch) => (branch === "main" ? BASE : Promise.reject(new Error("no such branch"))),
@@ -33,7 +35,7 @@ function fakeGitHub(options: { changed: ChangedFile[]; head?: Record<string, Rem
 const asRemote = (files: Map<string, Uint8Array>): Record<string, RemoteFile> => Object.fromEntries([...files].map(([name, bytes]) => [`registry/yourprotocol/${name}`, { type: "file", size: bytes.byteLength, bytes }]));
 const added = (files: Record<string, RemoteFile>): ChangedFile[] => Object.keys(files).map((filename) => ({ filename, status: "added" }));
 const deps = (github: GitHub) => ({ github, chains: FIXTURE_CHAINS, clientFor: () => fakeClient(), reserved: [], resolveTxt: async () => ["cryptomcp-repo=eziee-ai/protocol-mcp-template"] });
-const judge = (github: GitHub, login?: string, association?: string) => run(event(login, association), deps(github));
+const judge = (github: GitHub, login?: string) => run(event(login), deps(github));
 
 describe("run", () => {
   it("passes a good first submission and posts one report", async () => {
@@ -64,7 +66,7 @@ describe("run", () => {
 
   it("passes a maintainer's change to the code without judging it", async () => {
     const { github } = fakeGitHub({ changed: [{ filename: "validator/main.ts", status: "modified" }] });
-    expect((await judge(github, "hskang9", "OWNER")).ok).toBe(true);
+    expect((await judge(github, "hskang9")).ok).toBe(true);
   });
 
   it("fails a symlink and an oversized file before decoding either", async () => {
@@ -124,7 +126,7 @@ describe("run", () => {
 
   it("says of a maintainer's change that nothing was checked, never that checks pass", async () => {
     const { github, posted } = fakeGitHub({ changed: [{ filename: ".github/workflows/validate.yml", status: "modified" }] });
-    await judge(github, "hskang9", "OWNER");
+    await judge(github, "hskang9");
     expect(posted[0]).toContain("This is not a review");
     expect(posted[0]).not.toContain("checks pass");
   });
@@ -138,5 +140,17 @@ describe("run", () => {
     expect(result.ok).toBe(false);
     expect(result.findings.map((finding) => finding.check)).toEqual(["the pull request is into the default branch"]);
     expect(reads).toEqual([]);
+  });
+
+  it("knows a maintainer by their permission on this repository, which GitHub's association label cannot tell", async () => {
+    // On an organisation's repository the owner and a member with no access are both labelled MEMBER.
+    const change: ChangedFile[] = [{ filename: "site/src/styles/site.css", status: "modified" }];
+    expect((await judge(fakeGitHub({ changed: change }).github, "hskang9")).ok).toBe(true);
+    expect((await judge(fakeGitHub({ changed: change }).github, "some-org-member")).ok).toBe(false);
+  });
+
+  it("treats the author as an outsider when GitHub cannot be asked", async () => {
+    const { github } = fakeGitHub({ changed: [{ filename: "validator/main.ts", status: "modified" }], writers: "unreachable" });
+    expect((await judge(github, "hskang9")).ok).toBe(false);
   });
 });
