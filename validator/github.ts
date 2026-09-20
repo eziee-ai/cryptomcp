@@ -9,6 +9,7 @@ const API = "https://api.github.com";
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 /** The contents API returns a file's bytes inline up to 1 MB. Nothing the validator reads is near that. */
 const MAX_INLINE_BYTES = 1024 * 1024;
+const MAX_FILE_PAGES = 30;
 
 export interface RemoteFile {
   type: string;
@@ -50,10 +51,16 @@ export function createGitHub(token: string, doFetch: typeof fetch = fetch): GitH
 
   return {
     async listPrFiles(repo, pr) {
-      // One page. A submission is at most four files, and a change set of a hundred or more is refused whole.
-      const files = await get<ChangedFile[]>(`/repos/${checked(repo)}/pulls/${pr}/files?per_page=100`);
-      if (!files) throw new Error("the pull request could not be read");
-      return files.map((file) => ({ filename: String(file.filename), status: String(file.status), ...(file.previous_filename === undefined ? {} : { previous_filename: String(file.previous_filename) }) }));
+      // Every page. The path guard can only refuse what it is shown, so a file on page two must not be invisible
+      // to it. GitHub lists at most 3000 files for a pull request; the caller compares the count with the event's.
+      const all: ChangedFile[] = [];
+      for (let page = 1; page <= MAX_FILE_PAGES; page++) {
+        const files = await get<ChangedFile[]>(`/repos/${checked(repo)}/pulls/${pr}/files?per_page=100&page=${page}`);
+        if (!files) throw new Error("the pull request could not be read");
+        all.push(...files.map((file) => ({ filename: String(file.filename), status: String(file.status), ...(file.previous_filename === undefined ? {} : { previous_filename: String(file.previous_filename) }) })));
+        if (files.length < 100) break;
+      }
+      return all;
     },
 
     async getFile(repo, path, ref) {

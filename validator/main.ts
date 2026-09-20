@@ -20,7 +20,7 @@ import { SIZE_LIMITS, validateSubmission } from "./validate";
 
 export interface PullRequestEvent {
   repository: { full_name: string };
-  pull_request: { number: number; author_association: string; user: { login: string }; head: { sha: string }; base: { sha: string } };
+  pull_request: { number: number; changed_files: number; author_association: string; user: { login: string }; head: { sha: string }; base: { sha: string } };
 }
 
 export interface RunDeps {
@@ -40,7 +40,12 @@ export async function run(event: PullRequestEvent, deps: RunDeps): Promise<{ ok:
     return { ok: summarize(findings, { strict: true }).ok, findings, report };
   };
 
-  const guard = guardPaths(await deps.github.listPrFiles(repo, number), { login: user.login, association });
+  const changed = await deps.github.listPrFiles(repo, number);
+  // GitHub counts the pull request's files itself. If the list is shorter than the count, something is not being
+  // shown to the path guard, and a guard that has not seen every path has not guarded anything.
+  if (changed.length !== event.pull_request.changed_files) return finish([{ check: "every changed file was listed", status: "fail", detail: `GitHub counts ${event.pull_request.changed_files} changed files and listed ${changed.length}. Push again; if it persists the pull request is too large to judge` }]);
+
+  const guard = guardPaths(changed, { login: user.login, association });
   if (guard.kind === "refused") return finish(guard.problems.map((detail) => ({ check: "the pull request touches one registry entry and nothing else", status: "fail" as const, detail })));
   if (guard.kind === "maintainer-change") return finish([{ check: "registry submission", status: "note", detail: "this is a maintainer's change, not a submission. The validator has nothing to judge; code owners review it" }]);
 
@@ -49,8 +54,14 @@ export async function run(event: PullRequestEvent, deps: RunDeps): Promise<{ ok:
   const findings: Finding[] = [];
   for (const name of ENTRY_FILES) {
     const path = `registry/${guard.id}/${name}`;
-    const file = (await deps.github.getFile(repo, path, head.sha)) ?? (await deps.github.getFile(repo, path, base.sha));
-    if (!file) continue;
+    // A file the pull request says it adds or modifies MUST be read from the pull request. Falling back to main's
+    // copy when that read comes back empty would judge main's file and pass the pull request's unseen one.
+    const inPullRequest = changed.some((entry) => entry.filename === path);
+    const file = inPullRequest ? await deps.github.getFile(repo, path, head.sha) : await deps.github.getFile(repo, path, base.sha);
+    if (!file) {
+      if (inPullRequest) findings.push({ check: `${name} can be read from the pull request`, status: "fail", detail: "GitHub lists it as changed and it could not be read at the head commit. Push again" });
+      continue;
+    }
     // Refused before a byte of it is decoded: anything that is not a plain file, and anything over its limit.
     if (file.type !== "file") findings.push({ check: `${name} is a plain file`, status: "fail", detail: `it is a ${file.type.slice(0, 20)}` });
     else if (file.size > SIZE_LIMITS[name]) findings.push({ check: `${name} is within its size limit`, status: "fail", detail: `${file.size} bytes; at most ${SIZE_LIMITS[name]}` });
