@@ -267,6 +267,8 @@ describe("the submit page: one button, and the long part is for the agent", () =
     // The prompt tells the agent what it must not do on its own.
     expect(AGENT_PROMPT).toMatch(/ask me before/i);
     expect(AGENT_PROMPT).toMatch(/never put a key/i);
+    expect(AGENT_PROMPT).toMatch(/on a new branch/i);
+    expect(AGENT_PROMPT).toMatch(/do not push to my main branch without asking/i);
     const rules = page.querySelectorAll("details").map((d) => d.text).join(" ");
     for (const must of ["What the automatic validator checks", "What a human reviewer then checks", "Listed", "Conformant", "Failing"]) expect(rules).toContain(must);
   });
@@ -286,7 +288,9 @@ describe("the submit page: one button, and the long part is for the agent", () =
     const submit = cspOf("/submit")!;
     expect(submit).toBe(everywhere.replace("script-src 'none'", "script-src 'self'"));
     expect(submit).not.toMatch(/unsafe-inline|unsafe-eval|\*/);
-    // A later rule wins for the same header, as the SVG rule already relies on, so /submit must come after the catch-all.
+    // Where two rules match, Vercel sends ONE value per header, the later rule's, and keeps the rest of the earlier
+    // rule's headers. Seen on the live site, 2026-09-20: /registry/x/icon.svg answers with the SVG rule's policy alone,
+    // plus nosniff and HSTS from the catch-all. So /submit must come after the catch-all.
     const sources = SECURITY.headers.map((rule) => rule.source);
     expect(sources.indexOf("/submit")).toBeGreaterThan(sources.indexOf("/(.*)"));
   });

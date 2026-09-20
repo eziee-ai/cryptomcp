@@ -26,7 +26,7 @@ My MCP server must be served from that domain or a subdomain of it.
 Check it with: dig +short TXT _cryptomcp.<domain>
 
 STEP 4. Commit the manifest in MY repository.
-The file is registry/<id>/manifest.json, where <id> is the id in my manifest. Push it. Write down the full commit hash, all 40 characters.
+The file is registry/<id>/manifest.json, where <id> is the id in my manifest. Commit only that file, on a new branch, and push that branch. Do not push to my main branch without asking. Write down the full commit hash, all 40 characters.
 
 STEP 5. Prepare the submission.
 Fork https://github.com/eziee-ai/cryptomcp. Add exactly one folder, registry/<id>/, with exactly these four files and nothing else:
