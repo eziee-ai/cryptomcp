@@ -6,7 +6,7 @@ import { fakeClient, fixtureFiles, FIXTURE_CHAINS, json, parsed } from "./helper
 
 const HEAD = "b".repeat(40);
 const BASE = "a".repeat(40);
-const event = (login = "alice", association = "NONE"): PullRequestEvent => ({ repository: { full_name: "eziee-ai/cryptomcp" }, pull_request: { number: 7, author_association: association, user: { login }, head: { sha: HEAD }, base: { ref: "main" } } });
+const event = (login = "alice", association = "NONE"): PullRequestEvent => ({ repository: { full_name: "eziee-ai/cryptomcp", default_branch: "main" }, pull_request: { number: 7, author_association: association, user: { login }, head: { sha: HEAD }, base: { ref: "main" } } });
 
 /** A GitHub that holds a pull request's files at HEAD, main's at BASE, and the protocol's own repository. */
 function fakeGitHub(options: { changed: ChangedFile[]; head?: Record<string, RemoteFile>; base?: Record<string, RemoteFile>; counted?: number; headNow?: string }) {
@@ -127,5 +127,16 @@ describe("run", () => {
     await judge(github, "hskang9", "OWNER");
     expect(posted[0]).toContain("This is not a review");
     expect(posted[0]).not.toContain("checks pass");
+  });
+
+  it("refuses a pull request into any branch but the default one, reading nothing", async () => {
+    const head = asRemote(fixtureFiles());
+    const { github, reads } = fakeGitHub({ changed: added(head), head });
+    const into = event("alice");
+    into.pull_request.base.ref = "staging";
+    const result = await run(into, deps(github));
+    expect(result.ok).toBe(false);
+    expect(result.findings.map((finding) => finding.check)).toEqual(["the pull request is into the default branch"]);
+    expect(reads).toEqual([]);
   });
 });

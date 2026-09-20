@@ -21,7 +21,7 @@ import { MARKER, renderReport } from "./report";
 import { SIZE_LIMITS, validateSubmission } from "./validate";
 
 export interface PullRequestEvent {
-  repository: { full_name: string };
+  repository: { full_name: string; default_branch: string };
   pull_request: { number: number; author_association: string; user: { login: string }; head: { sha: string }; base: { ref: string } };
 }
 
@@ -43,6 +43,10 @@ export async function run(event: PullRequestEvent, deps: RunDeps): Promise<{ ok:
     // Strict: a check that could have run and did not is not a pass. Checks only a human can make do not count.
     return { ok: summarize(findings, { strict: true }).ok, findings, report };
   };
+
+  // Only `main` is protected, and only `main` is what the site and the app read. A pull request into any other
+  // branch would be judged against that branch's copy of an entry, which nobody reviewed.
+  if (base.ref !== event.repository.default_branch) return finish([{ check: "the pull request is into the default branch", status: "fail", detail: "submissions are judged against the default branch and merged into it, and nowhere else" }]);
 
   const changed = await deps.github.listPrFiles(repo, number);
   // Asked AFTER the list, so the two describe the same moment. If the pull request was pushed to since the event
