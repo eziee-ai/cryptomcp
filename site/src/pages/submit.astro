@@ -1,0 +1,70 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Submit" description="How a protocol joins cryptomcp: start from the template, get the conformance checker green, and open a pull request." path="/submit">
+  <h1>Submit a protocol</h1>
+  <p class="lede">Joining means hosting an MCP server for eziee and submitting a manifest that describes it, by pull request to the registry.</p>
+
+  <ol class="steps">
+    <li>
+      Start from <a href="https://github.com/eziee-ai/protocol-mcp-template" rel="noopener noreferrer nofollow">protocol-mcp-template</a>. It has the manifest shape, the
+      sample-intent shape, and the checking code (<code class="mono">kit/</code>) the registry itself uses to judge a submission.
+    </li>
+    <li>
+      Get <code class="mono">pnpm conform --strict</code> green in your own repository. This runs the same manifest parser, chain checks and server checks the pull
+      request validator runs, against your live server, before anyone else sees it.
+    </li>
+    <li>
+      Open a pull request to <a href="https://github.com/eziee-ai/cryptomcp" rel="noopener noreferrer nofollow">eziee-ai/cryptomcp</a> adding one folder,
+      <code class="mono">registry/&lt;id&gt;/</code>, with exactly four files:
+      <ul class="check-list">
+        <li><code class="mono">manifest.json</code> — the protocol manifest, unchanged from your repository.</li>
+        <li><code class="mono">samples.json</code> — one sample intent per action, used to exercise the live server.</li>
+        <li><code class="mono">icon.svg</code> — an inert SVG, at most 8 KB.</li>
+        <li>
+          <code class="mono">entry.json</code> — what the manifest does not carry:
+          <pre><code>{`{
+  "repo": "https://github.com/yourorg/yourprotocol-mcp",
+  "commit": "<40 hex>",
+  "tagline": "One line, at most 80 characters",
+  "links": { "docs": "https://…", "x": "https://…" },
+  "maintainers": ["github-login", "another-login"]
+}`}</code></pre>
+          <code class="mono">commit</code> must be a commit in <code class="mono">repo</code> whose <code class="mono">registry/&lt;id&gt;/manifest.json</code> is byte for byte
+          the manifest in the pull request — this ties the listing to public source a reviewer can read. <code class="mono">maintainers</code> are the GitHub logins
+          allowed to change this entry later; the pull request's author must be one of them.
+        </li>
+      </ul>
+    </li>
+  </ol>
+
+  <h2>What the automatic validator checks</h2>
+  <p>
+    A GitHub Action reports on the pull request itself, and must be green before a human reviews it. In order: every changed file is under your one
+    <code class="mono">registry/&lt;id&gt;/</code> folder and is one of the four allowed names; the manifest, <code class="mono">entry.json</code> and
+    <code class="mono">samples.json</code> parse against their strict schemas and every action has a matching sample; every chain the manifest names is one the registry
+    already supports; the icon parses as safe, inert SVG; every contract has code onchain, every declared proxy type and admin is correct, and every token answers
+    <code class="mono">symbol()</code> and <code class="mono">decimals()</code> as declared; and <code class="mono">entry.repo</code> is public with the manifest at
+    <code class="mono">entry.commit</code> matching the submission exactly.
+  </p>
+
+  <h2>What a human reviewer then checks</h2>
+  <ul class="check-list">
+    <li>Each manifest action's ABI matches the contract's verified source on its explorer: same function, names and types.</li>
+    <li>Each spending action, simulated on a forked chain: what leaves the signer equals the decoded spend.</li>
+    <li>Address sources are the protocol's own, and any proxy admin risk is acceptable.</li>
+    <li>The submitter is who they say they are.</li>
+  </ul>
+
+  <h2>What the states mean</h2>
+  <ul class="check-list">
+    <li><strong>Listed</strong> — the manifest was reviewed and merged. It makes no claim about the live server.</li>
+    <li><strong>Conformant</strong> — a scheduled job most recently found the live server passing eziee's conformance checks.</li>
+    <li><strong>Failing</strong> — it did not, and the page names which checks failed.</li>
+  </ul>
+  <p>
+    After merge, a maintainer contacts your team privately for the server's key, used only by the scheduled conformance job. Nothing about the key is ever in the
+    pull request or the repository.
+  </p>
+</Base>

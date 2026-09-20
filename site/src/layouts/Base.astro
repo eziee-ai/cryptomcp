@@ -1,0 +1,46 @@
+---
+import "../styles/site.css";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+
+interface Props {
+  title: string;
+  description: string;
+  /** Omit on a page with no real address of its own, e.g. 404, so it gets no canonical/`og:url`. */
+  path?: string;
+}
+
+const { title, description, path } = Astro.props;
+const canonical = path ? new URL(path, "https://cryptomcp.io").toString() : null;
+const pageTitle = title === "cryptomcp" ? title : `${title} — cryptomcp`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    {canonical && <link rel="canonical" href={canonical} />}
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    {canonical && <meta property="og:url" content={canonical} />}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="cryptomcp" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="page">
+      <Header />
+      <main id="main">
+        <div class="container">
+          <slot />
+        </div>
+      </main>
+      <Footer />
+    </div>
+  </body>
+</html>

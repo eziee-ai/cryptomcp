@@ -1,0 +1,29 @@
+{
+  "generatedAt": "2026-09-20T00:00:00.000Z",
+  "protocols": {
+    "yourprotocol": {
+      "state": "conformant",
+      "checkedAt": "2026-09-20T00:00:00.000Z",
+      "since": "2026-09-18T00:00:00.000Z",
+      "fromTemplate": true,
+      "summary": { "pass": 9, "fail": 0, "notRun": 2 },
+      "failures": []
+    },
+    "hostile": {
+      "state": "failing",
+      "checkedAt": "2026-09-20T00:00:00.000Z",
+      "since": "2026-09-19T00:00:00.000Z",
+      "fromTemplate": false,
+      "summary": { "pass": 5, "fail": 1, "notRun": 3 },
+      "failures": [{ "check": "server-simulate", "detail": "<b onclick=alert(1)>x</b>" }]
+    },
+    "another-protocol": {
+      "state": "unchecked",
+      "checkedAt": "2026-09-20T00:00:00.000Z",
+      "since": "2026-09-20T00:00:00.000Z",
+      "fromTemplate": false,
+      "summary": { "pass": 0, "fail": 0, "notRun": 11 },
+      "failures": []
+    }
+  }
+}

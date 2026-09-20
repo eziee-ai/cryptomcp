@@ -1,0 +1,32 @@
+{
+  "manifestVersion": 1,
+  "id": "hostile",
+  "name": "<script>alert(1)</script>",
+  "version": "1.0.0",
+  "homepage": "https://evil.example/\"onmouseover=\"alert(1)",
+  "icon": "icon.svg",
+  "mcp": { "url": "https://mcp.hostile.example/mcp", "transport": "streamable-http" },
+  "chains": [900001],
+  "contracts": {
+    "900001": {
+      "router": {
+        "address": "0x0000000000000000000000000000000000000301",
+        "role": "router",
+        "source": "https://hostile.example/deployments.json",
+        "proxy": { "type": "none" }
+      }
+    }
+  },
+  "tokens": {
+    "900001": [
+      { "address": "0x0000000000000000000000000000000000000401", "symbol": "HOS", "name": "</td><svg onload=alert(1)>", "decimals": 18, "trust": "listed" }
+    ]
+  },
+  "actions": {
+    "doit": {
+      "title": "\"><img src=x onerror=alert(1)>",
+      "spends": false,
+      "calls": [{ "contract": "router", "abi": "function noop()" }]
+    }
+  }
+}

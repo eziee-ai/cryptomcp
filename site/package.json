@@ -1,1 +1,25 @@
-{ "name": "site", "private": true, "version": "0.0.0" }
+{
+  "name": "site",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "test": "vitest run",
+    "typecheck": "astro check"
+  },
+  "dependencies": {
+    "@fontsource/dm-mono": "^5.2.5",
+    "astro": "^7.3.3",
+    "viem": "^2.23.5",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "node-html-parser": "^7.0.1",
+    "typescript": "^5.8.0",
+    "vitest": "^2.1.9"
+  }
+}

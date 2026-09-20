@@ -1,0 +1,20 @@
+---
+import type { DisplayState } from "../lib/data";
+
+interface Props {
+  state: DisplayState;
+}
+
+const { state } = Astro.props;
+
+const LABEL: Record<DisplayState, string> = {
+  conformant: "Conformant",
+  failing: "Failing",
+  unchecked: "Listed",
+};
+---
+
+<span class={`state-badge state-badge--${state}`}>
+  <span class="state-badge__shape" aria-hidden="true"></span>
+  {LABEL[state]}
+</span>

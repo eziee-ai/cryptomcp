@@ -1,0 +1,21 @@
+---
+import { addressUrl } from "../lib/data";
+
+interface Props {
+  chainId: number;
+  address: string;
+}
+
+const { chainId, address } = Astro.props;
+const url = addressUrl(chainId, address);
+---
+
+{
+  url ? (
+    <a class="mono" href={url} rel="noopener noreferrer nofollow">
+      {address}
+    </a>
+  ) : (
+    <span class="mono">{address}</span>
+  )
+}

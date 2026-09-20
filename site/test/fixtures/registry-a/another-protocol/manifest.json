@@ -1,0 +1,37 @@
+{
+  "manifestVersion": 1,
+  "id": "another-protocol",
+  "name": "Another Protocol",
+  "version": "1.0.0",
+  "homepage": "https://another-protocol.example",
+  "icon": "icon.svg",
+  "mcp": { "url": "https://mcp.another-protocol.example/mcp", "transport": "streamable-http" },
+  "chains": [900001],
+  "contracts": {
+    "900001": {
+      "vault": {
+        "address": "0x0000000000000000000000000000000000000501",
+        "role": "other",
+        "source": "https://another-protocol.example/deployments.json",
+        "proxy": { "type": "none" }
+      }
+    }
+  },
+  "tokens": {
+    "900001": [{ "address": "0x0000000000000000000000000000000000000601", "symbol": "ANP", "name": "Another Protocol Token", "decimals": 18, "trust": "canonical" }]
+  },
+  "actions": {
+    "deposit": {
+      "title": "Deposit",
+      "spends": true,
+      "calls": [
+        {
+          "contract": "vault",
+          "abi": "function deposit(address token, uint256 amount, address to)",
+          "spend": [{ "token": { "arg": "token" }, "amount": { "arg": "amount" } }],
+          "recipient": { "arg": "to" }
+        }
+      ]
+    }
+  }
+}

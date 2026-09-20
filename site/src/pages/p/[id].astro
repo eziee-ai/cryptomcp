@@ -1,0 +1,243 @@
+---
+import type { GetStaticPaths } from "astro";
+import Base from "../../layouts/Base.astro";
+import StateBadge from "../../components/StateBadge.astro";
+import Address from "../../components/Address.astro";
+import { registry, statusFor, stateFor } from "../../lib/data";
+import { safeHref } from "../../lib/safeHref";
+import { readCall } from "../../lib/present";
+
+export const getStaticPaths = (() => registry.map((entry) => ({ params: { id: entry.id }, props: { entry } }))) satisfies GetStaticPaths;
+
+const { entry } = Astro.props;
+const { manifest } = entry;
+const state = stateFor(entry.id);
+const row = statusFor(entry.id);
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// Fixed month abbreviations rather than Intl.DateTimeFormat: en-GB's ICU data renders September as "Sept", not
+// the three-letter "Sep" the spec's own example uses ("Conformant, checked 20 Sep 2026").
+const formatDate = (iso: string) => {
+  const date = new Date(iso);
+  return `${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+};
+
+const homepageHref = safeHref(manifest.homepage);
+const repoHref = safeHref(entry.entry.repo);
+const repoAtCommit = repoHref ? `${repoHref}/tree/${entry.entry.commit}` : null;
+const registryFolderHref = `https://github.com/eziee-ai/cryptomcp/tree/main/registry/${entry.id}`;
+
+const linkLabels: Record<string, string> = { docs: "Docs", app: "App", x: "X", discord: "Discord", github: "GitHub" };
+const entryLinks = Object.entries(entry.entry.links ?? {})
+  .map(([key, value]) => ({ key, label: linkLabels[key] ?? key, href: safeHref(value) }))
+  .filter((link): link is { key: string; label: string; href: string } => link.href !== null);
+
+const fromTemplateLabel = row === undefined || row.fromTemplate === null ? "unknown" : row.fromTemplate ? "yes" : "no";
+---
+
+<Base title={manifest.name} description={entry.entry.tagline} path={`/p/${entry.id}`}>
+  <div class="detail-header">
+    <div class="detail-header__top">
+      <img class="detail-header__icon" src={`/registry/${entry.id}.svg`} alt="" width="40" height="40" />
+      <div>
+        <h1>{manifest.name}</h1>
+        <p class="protocol-card__tagline">{entry.entry.tagline}</p>
+      </div>
+    </div>
+    <div class="detail-header__meta">
+      {homepageHref ? (
+        <a href={homepageHref} rel="noopener noreferrer nofollow">
+          {manifest.homepage}
+        </a>
+      ) : (
+        <span>{manifest.homepage}</span>
+      )}
+    </div>
+    <div class="detail-header__meta">
+      <StateBadge state={state} />
+      {state === "conformant" && row && <span>Checked {formatDate(row.checkedAt)}</span>}
+      {state === "failing" && row && <span>Failing since {formatDate(row.since)}</span>}
+    </div>
+    {state === "failing" && row && row.failures.length > 0 && (
+      <ul class="failure-list">
+        {row.failures.map((failure) => (
+          <li>
+            <span class="mono">{failure.check}</span>: {failure.detail}
+          </li>
+        ))}
+      </ul>
+    )}
+    {state === "unchecked" && <p class="state-explainer">Listed means the manifest was reviewed and merged. It makes no claim about the live server.</p>}
+  </div>
+
+  <h2>Contracts</h2>
+  {manifest.chains.map((chainId) => {
+    const contracts = Object.entries(manifest.contracts[String(chainId)] ?? {});
+    if (contracts.length === 0) return null;
+    return (
+      <div class="table-scroll">
+        <h3>Chain {chainId}</h3>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Key</th>
+              <th scope="col">Role</th>
+              <th scope="col">Proxy</th>
+              <th scope="col">Address</th>
+            </tr>
+          </thead>
+          <tbody>
+            {contracts.map(([key, contract]) => (
+              <tr>
+                <td class="mono">{key}</td>
+                <td>{contract.role}</td>
+                <td>
+                  {contract.proxy.type === "none" ? (
+                    "none"
+                  ) : (
+                    <span class="proxy-flag">
+                      {contract.proxy.type}
+                      {"admin" in contract.proxy && contract.proxy.admin ? (
+                        <>
+                          {" "}
+                          (admin <Address chainId={chainId} address={contract.proxy.admin} />)
+                        </>
+                      ) : null}
+                    </span>
+                  )}
+                </td>
+                <td>
+                  <Address chainId={chainId} address={contract.address} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  })}
+
+  <h2>Tokens</h2>
+  {manifest.chains.map((chainId) => {
+    const tokens = manifest.tokens[String(chainId)] ?? [];
+    if (tokens.length === 0) return null;
+    return (
+      <div class="table-scroll">
+        <h3>Chain {chainId}</h3>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th scope="col">Symbol</th>
+              <th scope="col">Name</th>
+              <th scope="col">Decimals</th>
+              <th scope="col">Trust</th>
+              <th scope="col">Address</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tokens.map((token) => (
+              <tr>
+                <td class="mono">{token.symbol}</td>
+                <td>{token.name}</td>
+                <td>{token.decimals}</td>
+                <td>{token.trust}</td>
+                <td>
+                  <Address chainId={chainId} address={token.address} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  })}
+
+  <h2>Actions</h2>
+  {Object.entries(manifest.actions).map(([key, action]) => (
+    <div class="action-block">
+      <div class="action-block__head">
+        <h3 class="action-block__title">{action.title}</h3>
+        <span class="chip">{key}</span>
+        <span class="chip">{action.spends ? "spends" : "does not spend"}</span>
+        {action.alwaysAsk && <span class="chip">always confirmed</span>}
+      </div>
+      {action.calls.map((call) => {
+        const reading = readCall(call);
+        return (
+          <div class="call-block">
+            <code class="call-signature mono">{call.abi}</code>
+            <dl class="field-list">
+              {reading.spend.map((line) => (
+                <>
+                  <dt>spend</dt>
+                  <dd>{line}</dd>
+                </>
+              ))}
+              {reading.receive && (
+                <>
+                  <dt>receive</dt>
+                  <dd>{reading.receive}</dd>
+                </>
+              )}
+              {reading.recipient && (
+                <>
+                  <dt>recipient</dt>
+                  <dd>{reading.recipient}</dd>
+                </>
+              )}
+              {reading.deadline && (
+                <>
+                  <dt>deadline</dt>
+                  <dd>{reading.deadline}</dd>
+                </>
+              )}
+              {reading.ignore.map((item) => (
+                <>
+                  <dt>
+                    ignore <span class="mono">{item.arg}</span>
+                  </dt>
+                  <dd>{item.reason}</dd>
+                </>
+              ))}
+            </dl>
+          </div>
+        );
+      })}
+    </div>
+  ))}
+
+  <h2>Links</h2>
+  <ul class="links-list">
+    {repoAtCommit && (
+      <li>
+        <a href={repoAtCommit} rel="noopener noreferrer nofollow">
+          Source at listed commit
+        </a>
+      </li>
+    )}
+    <li>
+      <a href={registryFolderHref} rel="noopener noreferrer nofollow">
+        Registry folder
+      </a>
+    </li>
+    <li>Built from the template: {fromTemplateLabel}</li>
+    {entryLinks.map((link) => (
+      <li>
+        <a href={link.href} rel="noopener noreferrer nofollow">
+          {link.label}
+        </a>
+      </li>
+    ))}
+  </ul>
+
+  <h2>Maintainers</h2>
+  <ul class="links-list">
+    {entry.entry.maintainers.map((login) => (
+      <li>
+        <a href={`https://github.com/${login}`} rel="noopener noreferrer nofollow">
+          @{login}
+        </a>
+      </li>
+    ))}
+  </ul>
+</Base>

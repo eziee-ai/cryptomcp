@@ -1,0 +1,37 @@
+---
+import Base from "../layouts/Base.astro";
+import ProtocolCard from "../components/ProtocolCard.astro";
+import { sortedRegistry, stateFor } from "../lib/data";
+
+const entries = sortedRegistry();
+const conformantCount = entries.filter((entry) => stateFor(entry.id) === "conformant").length;
+---
+
+<Base title="cryptomcp" description="The directory of protocols that built an MCP server for eziee, the AI desk for DeFi, and submitted a reviewed manifest." path="/">
+  <h1>cryptomcp</h1>
+  <p class="lede">The directory of protocols that built an MCP server for eziee, the AI desk for DeFi, and submitted a manifest reviewed by pull request.</p>
+
+  {
+    entries.length === 0 ? (
+      <div class="empty-state">
+        <img class="empty-state__mark" src="/favicon.svg" alt="" width="40" height="40" />
+        <h2>No protocol is listed yet</h2>
+        <p>The registry launches empty. The first entry appears here as soon as a pull request is reviewed and merged.</p>
+        <a class="btn-primary" href="/submit">
+          Submit a protocol
+        </a>
+      </div>
+    ) : (
+      <>
+        <p class="count-line">
+          {entries.length} protocol{entries.length === 1 ? "" : "s"}, {conformantCount} conformant
+        </p>
+        <ul class="protocol-grid">
+          {entries.map((entry) => (
+            <ProtocolCard entry={entry} />
+          ))}
+        </ul>
+      </>
+    )
+  }
+</Base>

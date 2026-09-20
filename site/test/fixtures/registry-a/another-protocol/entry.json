@@ -1,0 +1,6 @@
+{
+  "repo": "https://github.com/example/another-protocol-mcp",
+  "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "tagline": "Freshly merged, not checked yet",
+  "maintainers": ["bob"]
+}

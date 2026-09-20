@@ -1,0 +1,31 @@
+---
+import type { RegistryEntry } from "../../../lib/registry";
+import { chainName, stateFor } from "../lib/data";
+import StateBadge from "./StateBadge.astro";
+
+interface Props {
+  entry: RegistryEntry;
+}
+
+const { entry } = Astro.props;
+const state = stateFor(entry.id);
+const chainNames = entry.manifest.chains.map(chainName);
+const actionTitles = Object.values(entry.manifest.actions).map((action) => action.title);
+---
+
+<li class="protocol-card">
+  <div class="protocol-card__top">
+    <img class="protocol-card__icon" src={`/registry/${entry.id}.svg`} alt="" width="32" height="32" />
+    <div>
+      <h3 class="protocol-card__name">
+        <a class="card-link" href={`/p/${entry.id}`}>{entry.manifest.name}</a>
+      </h3>
+    </div>
+  </div>
+  <p class="protocol-card__tagline">{entry.entry.tagline}</p>
+  <p class="protocol-card__chains">{chainNames.join(", ")}</p>
+  <div class="chip-row">
+    {actionTitles.map((title) => <span class="chip">{title}</span>)}
+  </div>
+  <StateBadge state={state} />
+</li>

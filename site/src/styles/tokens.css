@@ -1,0 +1,71 @@
+/*
+ * eziee's identity, by value (spec section 8 and the owner's DESIGN.md). Dark is the default; light follows
+ * `prefers-color-scheme` only — there is no theme toggle and no script to run one.
+ *
+ * State colours (conformant/failing/unchecked) are semantic and never the brand lime. Each pairing below was
+ * checked against WCAG 2.2 AA (4.5:1 for text, 3:1 for the focus ring) for both themes; see the contrast notes
+ * in the site build report.
+ */
+
+:root {
+  --ink: #10120f;
+  --panel: #181c16;
+  --panel-raised: #242a20;
+  --chalk: #f3f4ed;
+  --muted: #a9afa2;
+  --lime: #d7f43b;
+  --lime-ink: #485a08;
+  --on-lime: #111310;
+  --border: rgba(243, 244, 237, 0.14);
+
+  --bg: var(--ink);
+  --surface: var(--panel);
+  --surface-raised: var(--panel-raised);
+  --text: var(--chalk);
+  --text-muted: var(--muted);
+  --link: var(--chalk);
+  --focus-ring: var(--lime);
+
+  --state-conformant: #4ade80;
+  --state-failing: #f87171;
+  --state-unchecked: var(--muted); /* neutral on purpose: Listed is not a warning */
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --content-width: 1080px;
+
+  --font-sans: "Satoshi", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --ink: #f3f4ed;
+    --panel: #fcfcf8;
+    --panel-raised: #f3f4ed;
+    --chalk: #171a14;
+    --muted: #4b5142;
+    --border: rgba(23, 26, 20, 0.14);
+
+    --bg: var(--ink);
+    --surface: var(--panel);
+    --surface-raised: var(--panel-raised);
+    --text: var(--chalk);
+    --text-muted: var(--muted);
+    --link: var(--chalk);
+    --focus-ring: var(--lime-ink);
+
+    --state-conformant: #0e6b33;
+    --state-failing: #b91c1c;
+    --state-unchecked: var(--muted);
+  }
+}
