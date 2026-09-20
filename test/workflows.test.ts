@@ -70,3 +70,35 @@ describe("ci.yml, which runs the pull request's own code", () => {
     expect(code("ci.yml")).not.toMatch(/secrets\./);
   });
 });
+
+describe("live-check.yml, which holds every protocol's key", () => {
+  const workflow = load("live-check.yml");
+
+  it("never runs for a pull request or a push", () => {
+    expect(Object.keys(workflow.on).sort()).toEqual(["schedule", "workflow_dispatch"]);
+  });
+
+  it("runs every job from main only", () => {
+    for (const job of Object.values(workflow.jobs) as Array<{ if?: string }>) expect(job.if).toContain("github.ref == 'refs/heads/main'");
+  });
+
+  it("reads a secret only in a job bound to the live-check environment, and never inside a shell line", () => {
+    for (const [name, job] of Object.entries(workflow.jobs)) {
+      const steps = job.steps ?? [];
+      const readsSecret = steps.some((step) => Object.values(step.env ?? {}).some((value) => String(value).includes("secrets")));
+      if (readsSecret) expect(job.environment, name).toBe("live-check");
+      for (const step of steps) if (step.run) expect(step.run, name).not.toContain("${{");
+    }
+    expect(workflow.permissions).toEqual({});
+  });
+
+  it("gives each matrix job one key, chosen by the protocol's id on main", () => {
+    const env = Object.values(workflow.jobs.check!.steps ?? []).flatMap((step) => Object.entries(step.env ?? {}));
+    expect(env).toContainEqual(["MCP_KEY", "${{ secrets[format('MCP_KEY_{0}', matrix.protocol.key)] }}"]);
+    expect(JSON.stringify(workflow.jobs.check)).not.toContain("toJSON(secrets)");
+  });
+
+  it("lets only the publish job write, and only contents", () => {
+    expect(Object.fromEntries(Object.entries(workflow.jobs).map(([name, job]) => [name, job.permissions]))).toEqual({ list: { contents: "read" }, check: { contents: "read" }, publish: { contents: "write" } });
+  });
+});

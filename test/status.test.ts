@@ -1,4 +1,8 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { collect } from "../live-check/assemble";
 import { assembleStatus, type CheckResult } from "../lib/status";
 
 const result = (state: CheckResult["state"], checkedAt: string): CheckResult => ({ state, checkedAt, fromTemplate: true, summary: { pass: 1, fail: state === "failing" ? 1 : 0, notRun: 0 }, failures: [] });
@@ -21,5 +25,16 @@ describe("assembleStatus", () => {
     const first = assembleStatus(null, { a: result("conformant", day1), b: result("unchecked", day1) }, day1);
     expect(Object.keys(assembleStatus(first, { b: result("unchecked", day2) }, day2).protocols)).toEqual(["b"]);
     expect(assembleStatus(first, {}, day2)).toEqual({ generatedAt: day2, protocols: {} });
+  });
+});
+
+
+describe("collect", () => {
+  it("records a protocol whose check never finished as failing, never as anything better", () => {
+    const out = mkdtempSync(join(tmpdir(), "out-"));
+    writeFileSync(join(out, "a.json"), JSON.stringify(result("conformant", "2026-09-20T00:00:00.000Z")));
+    const results = collect(["a", "b"], out, "2026-09-20T01:00:00.000Z");
+    expect(results.a!.state).toBe("conformant");
+    expect(results.b).toMatchObject({ state: "failing", failures: [{ check: "the live check completed" }] });
   });
 });

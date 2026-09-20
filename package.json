@@ -4,16 +4,23 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.33.0",
-  "engines": { "node": "22.x" },
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "validate": "tsx validator/main.ts",
     "live-check": "tsx live-check/run.ts",
     "assemble-status": "tsx live-check/assemble.ts",
-    "sync-kit": "tsx scripts/sync-kit.ts"
+    "sync-kit": "tsx scripts/sync-kit.ts",
+    "live-check:list": "tsx live-check/list.ts"
   },
-  "dependencies": { "fast-xml-parser": "^5.11.1", "viem": "^2.23.5", "zod": "3.25.76" },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.1",
+    "viem": "^2.23.5",
+    "zod": "3.25.76"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",

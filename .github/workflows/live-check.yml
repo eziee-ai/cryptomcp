@@ -1,0 +1,125 @@
+# The scheduled live check (spec section 7). It holds secrets, so it is the opposite of validate.yml in every way
+# that matters: it never runs for a pull request, only from `main`, only on a schedule or a maintainer's dispatch,
+# and everything it reads (the manifests, the samples, the URL each key is sent to) was reviewed and merged.
+#
+# Each protocol's key lives in the `live-check` environment, which is restricted to `main`. Each matrix job is given
+# exactly one key: its own.
+name: live-check
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: live-check
+  cancel-in-progress: false
+
+jobs:
+  list:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+      empty: ${{ steps.list.outputs.empty }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter .
+      - id: list
+        run: pnpm -s live-check:list >> "$GITHUB_OUTPUT"
+
+  check:
+    needs: list
+    if: github.ref == 'refs/heads/main' && needs.list.outputs.empty == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: live-check
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        protocol: ${{ fromJSON(needs.list.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter .
+      - run: pnpm -s live-check "$PROTOCOL_ID"
+        env:
+          PROTOCOL_ID: ${{ matrix.protocol.id }}
+          MCP_KEY: ${{ secrets[format('MCP_KEY_{0}', matrix.protocol.key)] }}
+          GITHUB_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: result-${{ matrix.protocol.id }}
+          path: out/
+          retention-days: 7
+
+  publish:
+    needs: [list, check]
+    # Runs when `check` was skipped (an empty registry) or partly failed: a crashed job is recorded as failing.
+    if: always() && github.ref == 'refs/heads/main' && needs.list.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: live-check
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm install --frozen-lockfile --ignore-scripts --filter .
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: out/
+          pattern: result-*
+          merge-multiple: true
+      - name: Assemble status.json from this run and the last one
+        run: |
+          set -euo pipefail
+          # `previous-status` exists only when the status branch does. FETCH_HEAD alone would not say so: the
+          # checkout above left one behind, pointing at main.
+          if git fetch --depth 1 origin status 2>/dev/null; then
+            git branch -f previous-status FETCH_HEAD
+            git show previous-status:status.json > "$RUNNER_TEMP/previous.json" || rm -f "$RUNNER_TEMP/previous.json"
+          fi
+          pnpm -s assemble-status "$RUNNER_TEMP/previous.json" "$RUNNER_TEMP/status.json"
+      - name: Publish it to the status branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse -q --verify refs/heads/previous-status >/dev/null; then
+            git checkout -q -B status previous-status
+          else
+            git checkout -q --orphan status
+            git rm -rfq --cached .
+          fi
+          cp "$RUNNER_TEMP/status.json" status.json
+          git add -f status.json
+          git commit -q -m "status: $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -q origin status
+      - name: Ask Vercel to rebuild the site
+        run: |
+          set -euo pipefail
+          if [ -n "${VERCEL_DEPLOY_HOOK:-}" ]; then curl -fsS -X POST "$VERCEL_DEPLOY_HOOK" -o /dev/null; else echo "VERCEL_DEPLOY_HOOK is not set; the site shows this status at its next deployment"; fi
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
