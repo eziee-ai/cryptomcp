@@ -192,6 +192,15 @@ statically exported Next.js page boots from inline scripts, which forces `script
 hashes. Shipping no script makes the strongest policy, `script-src 'none'`, true by construction. No server code and
 no environment secrets either.
 
+**One exception, on one page (2026-09-20, the owner's call).** Nobody read the long instructions on `/submit`. The
+page is now three lines and one button that copies a prompt for the person's coding agent; the rules live in that
+prompt (`site/src/lib/agentPrompt.ts`, also `/submit-prompt.txt`) and in a fold-out. A copy button needs a script, so
+`/submit`, which renders nothing from a submission, gets `script-src 'self'` and loads `public/copy-prompt.js`: a
+same-site file that reads text from the page and writes it to the clipboard, and nothing else. Every other page keeps
+`script-src 'none'`, inline scripts stay blocked everywhere, and `site/test/build.test.ts` fails the build if a script
+appears on any other page, comes from anywhere else, or is inline. With scripts off the button stays hidden and the
+prompt is still on the page, selectable in one click.
+
 | Route | Content |
 |---|---|
 | `/` | The directory: icon, name, tagline, chains, action titles, state. Sorted conformant first, then by name. |
