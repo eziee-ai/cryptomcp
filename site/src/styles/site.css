@@ -589,3 +589,61 @@ pre {
     padding: var(--space-2);
   }
 }
+
+/* ---------- Submit: the copy button and the fold-outs ---------- */
+
+.copy-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+  margin: var(--space-5) 0 var(--space-6);
+}
+
+.copy-button {
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 1.05rem;
+  padding: var(--space-4) var(--space-6);
+}
+
+.copy-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.copy-alt {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.copy-status {
+  flex-basis: 100%;
+  margin: 0;
+  min-height: 1.5em;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.fold {
+  border-top: 1px solid var(--border);
+  padding: var(--space-4) 0;
+}
+
+.fold > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.fold[open] > summary {
+  margin-bottom: var(--space-4);
+}
+
+.prompt {
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  /* One click selects the whole prompt, which is how it is copied with scripts off. */
+  user-select: all;
+}

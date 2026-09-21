@@ -6,6 +6,7 @@ import path from "node:path";
 import { parse } from "node-html-parser";
 import { parse as parse5 } from "parse5";
 import { describe, expect, it, beforeAll } from "vitest";
+import { AGENT_PROMPT } from "../src/lib/agentPrompt";
 import { safeHref } from "../src/lib/safeHref";
 
 const SITE_ROOT = path.resolve(__dirname, "..");
@@ -42,7 +43,10 @@ function allHtmlFiles(dir: string): string[] {
 
 /** Every check spec section 8 and the task brief ask of an HTML page rendering untrusted submission content. */
 /** Every element the site's pages are made of. Anything else in the output is something nobody decided to put there. */
-const ELEMENTS = new Set(["#document", "#documentType", "#text", "#comment", "html", "head", "meta", "title", "link", "body", "a", "header", "footer", "main", "nav", "section", "article", "h1", "h2", "h3", "h4", "p", "span", "div", "ul", "ol", "li", "dl", "dt", "dd", "img", "picture", "source", "table", "caption", "thead", "tbody", "tr", "th", "td", "code", "pre", "strong", "em", "small", "time", "br"]);
+const ELEMENTS = new Set(["#document", "#documentType", "#text", "#comment", "html", "head", "meta", "title", "link", "body", "a", "header", "footer", "main", "nav", "section", "article", "h1", "h2", "h3", "h4", "p", "span", "div", "ul", "ol", "li", "dl", "dt", "dd", "img", "picture", "source", "table", "caption", "thead", "tbody", "tr", "th", "td", "code", "pre", "strong", "em", "small", "time", "br", "button", "details", "summary", "script"]);
+/** The ONE script this site ships, and the one page that may load it. Every other page has none (spec section 8). */
+const COPY_SCRIPT = "/copy-prompt.js";
+const SCRIPT_PAGE = "submit/index.html";
 const URL_ATTRIBUTES = new Set(["href", "src", "srcset", "action", "formaction", "poster", "data", "ping", "cite", "manifest", "background", "xlink:href"]);
 const STYLESHEETS = /^(\/_astro\/[\w.-]+\.css|https:\/\/api\.fontshare\.com\/v2\/css\?[^"<>\s]*)$/;
 
@@ -77,6 +81,16 @@ function assertPageIsSafe(html: string, label: string) {
       for (const candidate of name === "srcset" ? value.split(",").map((part) => part.trim().split(/\s+/)[0]!) : [value]) {
         expect(/^(\/(?!\/)|#|https:\/\/)/.test(candidate), `${where} is not a same-site path, a fragment or an https: URL`).toBe(true);
       }
+    }
+    if (node.nodeName === "script") {
+      const attrs = Object.fromEntries((node.attrs ?? []).map((attr) => [attr.name, attr.value]));
+      expect(label, `${label}: only /submit may load a script`).toBe(SCRIPT_PAGE);
+      expect(attrs.src, `${label}: a script from somewhere unexpected`).toBe(COPY_SCRIPT);
+      expect((node.childNodes ?? []).length, `${label}: an inline script`).toBe(0);
+    }
+    if (node.nodeName === "button") {
+      const attrs = Object.fromEntries((node.attrs ?? []).map((attr) => [attr.name, attr.value]));
+      expect(attrs.type, `${label}: a button that could submit something`).toBe("button");
     }
     if (node.nodeName === "link") {
       const attrs = Object.fromEntries((node.attrs ?? []).map((attr) => [attr.name, attr.value]));
@@ -203,6 +217,82 @@ describe("fixture A: two protocols, one hostile", () => {
     const root = parse(html);
     const ids = root.querySelectorAll(".protocol-card .card-link").map((a) => a.attributes.href);
     expect(ids).toEqual(["/p/yourprotocol", "/p/hostile", "/p/another-protocol"]);
+  });
+});
+
+describe("the submit page: one button, and the long part is for the agent", () => {
+  let build: BuildResult;
+  let page: ReturnType<typeof parse>;
+  const SECURITY = JSON.parse(readFileSync(path.join(SITE_ROOT, "vercel.json"), "utf8")) as { headers: Array<{ source: string; headers: Array<{ key: string; value: string }> }> };
+  const cspOf = (source: string) => SECURITY.headers.find((rule) => rule.source === source)?.headers.find((h) => h.key === "Content-Security-Policy")?.value;
+
+  beforeAll(() => {
+    build = runBuild({ registryDir: path.join(FIXTURES, "registry-empty"), statusUrl: `file://${path.join(FIXTURES, "no-such-status.json")}` });
+    if (build.status !== 0) throw new Error(`build failed (exit ${build.status}):\n${build.stdout}\n${build.stderr}`);
+    page = parse(readFileSync(path.join(build.outDir, SCRIPT_PAGE), "utf8"));
+  });
+
+  it("leads with one button that copies the prompt, and carries the prompt it copies", () => {
+    const buttons = page.querySelectorAll("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]!.getAttribute("data-copy-target")).toBe("agent-prompt");
+    expect(buttons[0]!.text).toMatch(/copy/i);
+    // The page's own copy of the prompt is what the button reads, so it must be the whole prompt, unaltered.
+    expect(page.querySelector("#agent-prompt")!.text).toBe(AGENT_PROMPT);
+    expect(page.querySelectorAll("script").map((s) => s.getAttribute("src"))).toEqual([COPY_SCRIPT]);
+  });
+
+  it("works without the script: the prompt is on the page and is also served as plain text", () => {
+    expect(page.querySelector('a[href="/submit-prompt.txt"]')).not.toBeNull();
+    expect(readFileSync(path.join(build.outDir, "submit-prompt.txt"), "utf8")).toBe(AGENT_PROMPT);
+  });
+
+  it("asks a person to read very little: under 120 words outside the fold-outs, in short sentences", () => {
+    const main = parse(page.querySelector("main")!.toString());
+    for (const fold of main.querySelectorAll("details")) fold.remove();
+    const words = main.text.split(/\s+/).filter(Boolean);
+    expect(words.length).toBeLessThan(120);
+    // Sentence by sentence within each block: a heading and the paragraph after it are not one sentence.
+    for (const block of main.querySelectorAll("h1, h2, p, li")) {
+      for (const sentence of block.text.split(/[.!?](?:\s+|$)/).map((s) => s.trim()).filter(Boolean)) {
+        expect(sentence.split(/\s+/).length, `too long to read at a glance: "${sentence}"`).toBeLessThanOrEqual(16);
+      }
+    }
+  });
+
+  it("keeps every rule, moved into the prompt and the fold-out rather than dropped", () => {
+    for (const must of ["https://github.com/eziee-ai/protocol-mcp-template", "pnpm conform --strict", "_cryptomcp.", "cryptomcp-repo=", "https://github.com/eziee-ai/cryptomcp", "manifest.json", "samples.json", "icon.svg", "entry.json", "8 KB", "40", "maintainers", "byte for byte"]) {
+      expect(AGENT_PROMPT, `the prompt no longer says: ${must}`).toContain(must);
+    }
+    // The prompt tells the agent what it must not do on its own.
+    expect(AGENT_PROMPT).toMatch(/ask me before/i);
+    expect(AGENT_PROMPT).toMatch(/never put a key/i);
+    expect(AGENT_PROMPT).toMatch(/on a new branch/i);
+    expect(AGENT_PROMPT).toMatch(/do not push to my main branch without asking/i);
+    const rules = page.querySelectorAll("details").map((d) => d.text).join(" ");
+    for (const must of ["What the automatic validator checks", "What a human reviewer then checks", "Listed", "Conformant", "Failing"]) expect(rules).toContain(must);
+  });
+
+  it("the one script is small, same-site, and can only copy text", () => {
+    const script = readFileSync(path.join(build.outDir, "copy-prompt.js"), "utf8");
+    expect(script.length).toBeLessThan(2_000);
+    for (const banned of ["eval", "Function(", "innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "fetch(", "XMLHttpRequest", "import(", "location", "cookie", "localStorage", "postMessage", "http"]) {
+      expect(script, `copy-prompt.js uses ${banned}`).not.toContain(banned);
+    }
+    expect(script).toContain("navigator.clipboard.writeText");
+  });
+
+  it("scripts stay blocked everywhere but /submit, where only a same-site file may run", () => {
+    const everywhere = cspOf("/(.*)")!;
+    expect(everywhere).toContain("script-src 'none'");
+    const submit = cspOf("/submit")!;
+    expect(submit).toBe(everywhere.replace("script-src 'none'", "script-src 'self'"));
+    expect(submit).not.toMatch(/unsafe-inline|unsafe-eval|\*/);
+    // Where two rules match, Vercel sends ONE value per header, the later rule's, and keeps the rest of the earlier
+    // rule's headers. Seen on the live site, 2026-09-20: /registry/x/icon.svg answers with the SVG rule's policy alone,
+    // plus nosniff and HSTS from the catch-all. So /submit must come after the catch-all.
+    const sources = SECURITY.headers.map((rule) => rule.source);
+    expect(sources.indexOf("/submit")).toBeGreaterThan(sources.indexOf("/(.*)"));
   });
 });
 
